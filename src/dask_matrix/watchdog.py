@@ -48,6 +48,7 @@ class ResourceWatchdog:
         rss_ceiling_mib: float = AGGREGATE_RSS_CEILING_MIB,
         host_floor_mib: float = HOST_AVAILABLE_RAM_FLOOR_MIB,
         sample_interval_s: float = WATCHDOG_SAMPLE_INTERVAL_S,
+        global_deadline_s: Optional[float] = None,
         on_breach_callback: Optional[Callable[[str, ProcessMemorySample], None]] = None,
     ):
         self.pids = sorted(list(set(pids_to_track)))
@@ -56,6 +57,7 @@ class ResourceWatchdog:
         self.rss_ceiling_mib = rss_ceiling_mib
         self.host_floor_mib = host_floor_mib
         self.sample_interval_s = sample_interval_s
+        self.global_deadline_s = global_deadline_s
         self.on_breach_callback = on_breach_callback
 
         self._stop_event = threading.Event()
@@ -65,8 +67,12 @@ class ResourceWatchdog:
         self.peak_process_sum_mib: float = 0.0
         self.peak_working_set_per_pid_mib: Dict[int, float] = {}
         self.breach_detected: bool = False
+        self.breach_type: Optional[str] = None
         self.breach_reason: Optional[str] = None
         self.start_time_epoch_s: float = 0.0
+
+        self._safe_stop_lock = threading.Lock()
+        self._safe_stop_executed: bool = False
 
     def start(self) -> None:
         """Starts the watchdog monitoring thread."""
@@ -75,7 +81,9 @@ class ResourceWatchdog:
         self.peak_process_sum_mib = 0.0
         self.peak_working_set_per_pid_mib.clear()
         self.breach_detected = False
+        self.breach_type = None
         self.breach_reason = None
+        self._safe_stop_executed = False
         self.start_time_epoch_s = time.time()
 
         self._thread = threading.Thread(
@@ -137,12 +145,15 @@ class ResourceWatchdog:
     def _monitor_loop(self) -> None:
         """Internal polling loop executing every 250 ms."""
         while not self._stop_event.is_set():
+            if self.breach_detected:
+                break
             sample = self._sample_once()
             self.samples.append(sample)
 
-            # Check Threshold 1: Aggregate RSS Ceiling (2.5 GiB)
+            # Check Threshold 1: Aggregate RSS Ceiling (2.5 GiB) - Priority 1 (Physical Memory Safety)
             if sample.rss_process_sum_mib >= self.rss_ceiling_mib:
                 self.breach_detected = True
+                self.breach_type = "OUT_OF_MEMORY"
                 self.breach_reason = (
                     f"Aggregate RSS ceiling breached: {sample.rss_process_sum_mib:.1f} MiB "
                     f">= {self.rss_ceiling_mib:.1f} MiB limit."
@@ -150,9 +161,10 @@ class ResourceWatchdog:
                 self._execute_safe_stop(self.breach_reason, sample)
                 break
 
-            # Check Threshold 2: Host Available RAM Floor (1.0 GiB)
+            # Check Threshold 2: Host Available RAM Floor (1.0 GiB) - Priority 2 (OS System Safety)
             if sample.host_available_ram_mib < self.host_floor_mib:
                 self.breach_detected = True
+                self.breach_type = "ABORTED_WATCHDOG"
                 self.breach_reason = (
                     f"Host available RAM floor breached: {sample.host_available_ram_mib:.1f} MiB "
                     f"< {self.host_floor_mib:.1f} MiB floor."
@@ -160,20 +172,40 @@ class ResourceWatchdog:
                 self._execute_safe_stop(self.breach_reason, sample)
                 break
 
+            # Check Threshold 3: Global Session Deadline - Priority 3 (Administrative Wall-Clock Budget)
+            if self.global_deadline_s is not None and time.perf_counter() >= self.global_deadline_s:
+                self.breach_detected = True
+                self.breach_type = "ABORTED_BUDGET"
+                self.breach_reason = (
+                    f"Global session deadline reached ({time.perf_counter():.2f} >= {self.global_deadline_s:.2f})."
+                )
+                self._execute_safe_stop(self.breach_reason, sample)
+                break
+
             self._stop_event.wait(self.sample_interval_s)
 
-    def _execute_safe_stop(self, reason: str, sample: ProcessMemorySample) -> None:
+    def _execute_safe_stop(self, reason: str, sample: Optional[ProcessMemorySample] = None) -> None:
         """
-        Executes the formal 5-step safe stop procedure:
+        Executes the formal 5-step safe stop procedure bounded by a single shared deadline:
         1. Log detection and alert.
         2. Cancel tasks in client.
-        3. Orderly close client and cluster (5 s grace period).
-        4. Forcefully terminate lingering PIDs.
+        3. Orderly close client and cluster (sharing one unified <= 5.0 s deadline).
+        4. Forceful concurrent termination of child processes (terminate then kill).
         5. Invoke on_breach callback.
         """
+        # Concurrency guard: Ensure single execution across watchdog and caller threads
+        with self._safe_stop_lock:
+            if self._safe_stop_executed:
+                return
+            self._safe_stop_executed = True
+
+        stop_start = time.perf_counter()
+        total_shutdown_budget = 5.0
+        deadline = stop_start + total_shutdown_budget
+
         # Step 1: Alert
         sys.stderr.write(f"\n[WATCHDOG ALARM] {reason}\n")
-        sys.stderr.write(f"[WATCHDOG ALARM] Executing 5-step safe stop procedure...\n")
+        sys.stderr.write(f"[WATCHDOG ALARM] Executing 5-step safe stop procedure (budget <= {total_shutdown_budget:.1f} s)...\n")
 
         # Step 2: Cancel in-flight futures
         if self.client is not None:
@@ -183,33 +215,77 @@ class ResourceWatchdog:
             except Exception as e:
                 sys.stderr.write(f"[WATCHDOG] Client task cancellation error: {e}\n")
 
-        # Step 3: Orderly close with 5 s grace period
-        try:
-            if self.client is not None:
-                self.client.close(timeout=5.0)
-            if self.cluster is not None:
-                self.cluster.close(timeout=5.0)
-        except Exception as e:
-            sys.stderr.write(f"[WATCHDOG] Orderly shutdown error: {e}\n")
-
-        # Step 4: Forceful termination of child processes
-        driver_pid = os.getpid()
-        for pid in self.pids:
-            if pid != driver_pid:
+        # Step 3: Orderly close sharing a single actual deadline
+        if self.client is not None:
+            rem = deadline - time.perf_counter()
+            if rem > 0.05:
                 try:
-                    proc = psutil.Process(pid)
+                    self.client.close(timeout=rem)
+                except Exception as e:
+                    sys.stderr.write(f"[WATCHDOG] Client orderly shutdown error: {e}\n")
+
+        if self.cluster is not None:
+            rem = deadline - time.perf_counter()
+            if rem > 0.05:
+                try:
+                    self.cluster.close(timeout=rem)
+                except Exception as e:
+                    sys.stderr.write(f"[WATCHDOG] Cluster orderly shutdown error: {e}\n")
+
+        # Step 4: Forceful termination of all child processes (excluding driver PID)
+        driver_pid = os.getpid()
+        target_pids = [pid for pid in self.pids if pid != driver_pid]
+
+        procs_to_terminate: List[psutil.Process] = []
+        for pid in target_pids:
+            try:
+                p = psutil.Process(pid)
+                if p.is_running():
+                    # Collect grandchildren if worker/nanny spawned child processes
+                    try:
+                        for child in p.children(recursive=True):
+                            if child.pid != driver_pid:
+                                procs_to_terminate.append(child)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                    procs_to_terminate.append(p)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
+        # Deduplicate processes by PID
+        unique_procs = {p.pid: p for p in procs_to_terminate}
+
+        # Send SIGTERM / terminate() to all targets
+        for proc in unique_procs.values():
+            try:
+                if proc.is_running():
+                    proc.terminate()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
+        # Wait for all processes concurrently up to remaining budget
+        rem = deadline - time.perf_counter()
+        if rem > 0.05 and unique_procs:
+            gone, alive = psutil.wait_procs(list(unique_procs.values()), timeout=rem)
+            for p in alive:
+                try:
+                    p.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        else:
+            # Deadline expired, force immediate kill
+            for proc in unique_procs.values():
+                try:
                     if proc.is_running():
-                        proc.terminate()
-                        try:
-                            proc.wait(timeout=2.0)
-                        except psutil.TimeoutExpired:
-                            proc.kill()
+                        proc.kill()
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
 
         # Step 5: Notify callback
         if self.on_breach_callback is not None:
             try:
+                if sample is None:
+                    sample = self._sample_once()
                 self.on_breach_callback(reason, sample)
             except Exception:
                 pass
