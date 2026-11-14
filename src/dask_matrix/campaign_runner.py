@@ -1,0 +1,960 @@
+"""
+src.dask_matrix.campaign_runner — Phase 8 Full Single-Worker Campaign Orchestrator
+
+Implements the formal and binding single-worker (p=1) experimental campaign specified in:
+- docs/experimental_protocol.md (Section 3, Section 8, Section 10, Section 11)
+- SPEC.md and CLAUDE.md
+
+Campaign Matrix:
+- Method: dask_block_2d exclusively
+- Reduction: binary_tree_reduction
+- Matrix sizes: n in {250, 500, 750, 1000, 1500, 2000} (6 sizes)
+- Block size: b = 250
+- Worker count: p = 1 exclusively (enforcing DEC-01 / Gate G1)
+- Threads per worker: 1
+- OpenBLAS num_threads: 1
+- Repetitions: exactly 1 warm-up (is_warmup=True, rep=0) + 5 measured repetitions (rep=1..5)
+- Total planned samples: 36 (6 warm-up + 30 measured)
+- Execution ordering: reproducible randomized order of configurations with seed 20261113 (protocol §8)
+- Resource budgets:
+  * Sample timeout: 120.0 s (protocol §10.1)
+  * Nominal startup timeout: 60.0 s (protocol §10.5.2, SPEC DEC-06)
+  * Cleanup budget: 5.0 s (protocol §10.5.2)
+  * Global planning ceiling: 36,000.0 s (10 hours, protocol §10.2)
+  * Aggregate RSS ceiling: 2560.0 MiB (2.5 GiB, protocol §10.3)
+  * Host available RAM floor: 1024.0 MiB (1.0 GiB, protocol §10.3)
+  * Watchdog sampling interval: 250 ms (protocol §10.3)
+  * Dask worker memory_limit: None (protocol §7.5)
+
+Reuses existing validated Phase 7 infrastructure:
+- ClusterManager
+- DistributedBlockMatmul
+- ResourceWatchdog
+- MatrixValidator
+- RawResultsLogger
+- generate_campaign_sidecar
+"""
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
+import os
+import random
+import sys
+import time
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+import uuid
+import numpy as np
+
+from src.dask_matrix.cluster_manager import (
+    ClusterManager,
+    ClusterTopology,
+    verify_multiworker_permission,
+)
+from src.dask_matrix.distributed_engine import (
+    DaskExecutionResult,
+    DistributedBlockMatmul,
+)
+from src.dask_matrix.results_logger import (
+    MeasurementRecord,
+    RawResultsLogger,
+    DEFAULT_RESULTS_FILE,
+)
+from src.dask_matrix.sidecar import (
+    generate_campaign_sidecar,
+    get_git_commit_sha,
+    METADATA_DIR,
+)
+from src.dask_matrix.validation import MatrixValidator
+from src.dask_matrix.watchdog import (
+    ResourceWatchdog,
+    AGGREGATE_RSS_CEILING_MIB,
+    HOST_AVAILABLE_RAM_FLOOR_MIB,
+    WATCHDOG_SAMPLE_INTERVAL_S,
+)
+
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+DEFAULT_DATA_DIR = os.path.join(REPO_ROOT, "data")
+DEFAULT_DENSE_DIR = os.path.join(DEFAULT_DATA_DIR, "dense")
+DEFAULT_VAL_DIR = os.path.join(DEFAULT_DATA_DIR, "validation")
+DEFAULT_SUMS_FILE = os.path.join(DEFAULT_DATA_DIR, "SHA256SUMS.txt")
+
+# Normative Campaign Constants (Protocol §3, §8, §10)
+CAMPAIGN_GLOBAL_BUDGET_S = 36000.0     # 10 hours campaign planning envelope (protocol §10.2)
+CAMPAIGN_SAMPLE_TIMEOUT_S = 120.0      # 120 seconds per end-to-end sample (protocol §10.1)
+CAMPAIGN_STARTUP_TIMEOUT_S = 60.0     # 60.0s nominal cluster startup (protocol §10.5.2, SPEC DEC-06)
+CAMPAIGN_CLEANUP_TIMEOUT_S = 5.0      # 5.0s shared cleanup budget (protocol §10.5.2)
+
+CAMPAIGN_METHOD = "dask_block_2d"
+CAMPAIGN_FRAMEWORK = "dask_distributed"
+CAMPAIGN_TIMING_BOUNDARY_ID = "TB_DASK_E2E"
+CAMPAIGN_ALGORITHM_VARIANT = "binary_tree_reduction"
+CAMPAIGN_DTYPE = "float64"
+CAMPAIGN_BLOCK_SIZE = 250
+CAMPAIGN_WORKER_COUNT = 1
+CAMPAIGN_WORKER_THREADS = 1
+CAMPAIGN_BLAS_THREADS = 1
+CAMPAIGN_PHYSICAL_MACHINE_COUNT = 1
+
+CAMPAIGN_SIZES: Tuple[int, ...] = (250, 500, 750, 1000, 1500, 2000)
+CAMPAIGN_REPETITIONS = 5
+CAMPAIGN_SEED = 20261113
+
+
+@dataclass(frozen=True)
+class CampaignSampleSpec:
+    """Immutable specification for a single campaign sample execution."""
+    sample_id: str
+    n: int
+    block_size: int
+    worker_count: int
+    repetition: int
+    is_warmup: bool
+    execution_order: int
+
+
+def build_campaign_plan(
+    sizes: Tuple[int, ...] = CAMPAIGN_SIZES,
+    block_size: int = CAMPAIGN_BLOCK_SIZE,
+    worker_count: int = CAMPAIGN_WORKER_COUNT,
+    repetitions: int = CAMPAIGN_REPETITIONS,
+    randomize: bool = True,
+    seed: int = CAMPAIGN_SEED,
+) -> Tuple[CampaignSampleSpec, ...]:
+    """
+    Constructs the immutable 36-sample execution plan for the single-worker campaign.
+
+    Per protocol §8:
+    - 1 warm-up (is_warmup=True, rep=0) per configuration.
+    - 5 measured repetitions (is_warmup=False, rep=1..5) per configuration.
+    - If randomize=True, configuration order is shuffled with fixed seed 20261113.
+    """
+    ordered_sizes = list(sizes)
+    if randomize:
+        rng = random.Random(seed)
+        rng.shuffle(ordered_sizes)
+
+    plan_list: List[CampaignSampleSpec] = []
+    exec_order = 1
+
+    for n in ordered_sizes:
+        # Warm-up sample (repetition=0)
+        plan_list.append(
+            CampaignSampleSpec(
+                sample_id=f"campaign_{n}_w0",
+                n=n,
+                block_size=block_size,
+                worker_count=worker_count,
+                repetition=0,
+                is_warmup=True,
+                execution_order=exec_order,
+            )
+        )
+        exec_order += 1
+
+        # Measured repetitions (repetition=1..repetitions)
+        for rep in range(1, repetitions + 1):
+            plan_list.append(
+                CampaignSampleSpec(
+                    sample_id=f"campaign_{n}_r{rep}",
+                    n=n,
+                    block_size=block_size,
+                    worker_count=worker_count,
+                    repetition=rep,
+                    is_warmup=False,
+                    execution_order=exec_order,
+                )
+            )
+            exec_order += 1
+
+    return tuple(plan_list)
+
+
+# Canonical default plan
+CAMPAIGN_PLAN: Tuple[CampaignSampleSpec, ...] = build_campaign_plan()
+
+
+def validate_campaign_plan(
+    plan: Sequence[CampaignSampleSpec],
+    expected_sizes: Sequence[int] = CAMPAIGN_SIZES,
+    expected_block_size: int = CAMPAIGN_BLOCK_SIZE,
+    expected_worker_count: int = CAMPAIGN_WORKER_COUNT,
+    expected_repetitions: int = CAMPAIGN_REPETITIONS,
+    sample_timeout_s: float = CAMPAIGN_SAMPLE_TIMEOUT_S,
+    session_budget_s: float = CAMPAIGN_GLOBAL_BUDGET_S,
+) -> bool:
+    """
+    Statically validates the campaign plan prior to cluster initialization.
+
+    Rejects:
+    - Multi-worker execution (p > 1).
+    - Duplicate sample IDs.
+    - Missing or unexpected matrix sizes.
+    - Incorrect block size or repetition counts.
+    - Missing warm-up samples.
+    - Non-monotonic or invalid execution orders.
+    - Invalid timeouts or budgets.
+    """
+    # 1. Enforce DEC-01
+    if expected_worker_count > 1:
+        raise PermissionError(
+            f"[DEC-01 / Gate G1 BLOCKED] Multi-worker campaign execution (p={expected_worker_count}) "
+            "requires written instructor permission in docs/decisions/."
+        )
+
+    verify_multiworker_permission(expected_worker_count)
+
+    # 2. Check total sample count
+    expected_total = len(expected_sizes) * (expected_repetitions + 1)
+    if len(plan) != expected_total:
+        raise ValueError(f"Campaign plan must contain exactly {expected_total} samples, got {len(plan)}.")
+
+    # 3. Check sample IDs uniqueness
+    sample_ids: Set[str] = set()
+    sizes_seen: Dict[int, List[int]] = {n: [] for n in expected_sizes}
+    warmups_seen: Dict[int, int] = {n: 0 for n in expected_sizes}
+
+    for idx, spec in enumerate(plan):
+        if spec.sample_id in sample_ids:
+            raise ValueError(f"Duplicate sample_id detected in campaign plan: {spec.sample_id}")
+        sample_ids.add(spec.sample_id)
+
+        if spec.worker_count != expected_worker_count:
+            raise ValueError(
+                f"Sample {spec.sample_id} has worker_count={spec.worker_count}, expected {expected_worker_count}."
+            )
+        if spec.block_size != expected_block_size:
+            raise ValueError(
+                f"Sample {spec.sample_id} has block_size={spec.block_size}, expected {expected_block_size}."
+            )
+        if spec.n not in sizes_seen:
+            raise ValueError(f"Sample {spec.sample_id} has unexpected matrix dimension n={spec.n}.")
+
+        if spec.execution_order != idx + 1:
+            raise ValueError(
+                f"Sample {spec.sample_id} execution_order={spec.execution_order} does not match expected {idx + 1}."
+            )
+
+        if spec.is_warmup:
+            if spec.repetition != 0:
+                raise ValueError(f"Warm-up sample {spec.sample_id} must have repetition=0, got {spec.repetition}.")
+            warmups_seen[spec.n] += 1
+        else:
+            if spec.repetition <= 0 or spec.repetition > expected_repetitions:
+                raise ValueError(
+                    f"Measured sample {spec.sample_id} has repetition={spec.repetition}, expected 1..{expected_repetitions}."
+                )
+            sizes_seen[spec.n].append(spec.repetition)
+
+    # 4. Check each size has exactly 1 warm-up and all expected repetitions
+    for n in expected_sizes:
+        if warmups_seen[n] != 1:
+            raise ValueError(f"Matrix size n={n} must have exactly 1 warm-up, got {warmups_seen[n]}.")
+        reps = sorted(sizes_seen[n])
+        if reps != list(range(1, expected_repetitions + 1)):
+            raise ValueError(
+                f"Matrix size n={n} measured repetitions mismatch. Expected 1..{expected_repetitions}, got {reps}."
+            )
+
+    # 5. Check budget and timeout parameters
+    if sample_timeout_s <= 0:
+        raise ValueError(f"sample_timeout_s must be positive, got {sample_timeout_s}.")
+    if session_budget_s <= 0:
+        raise ValueError(f"session_budget_s must be positive, got {session_budget_s}.")
+    if sample_timeout_s > session_budget_s:
+        raise ValueError(
+            f"sample_timeout_s ({sample_timeout_s}s) cannot exceed session_budget_s ({session_budget_s}s)."
+        )
+
+    return True
+
+
+def load_sha256_checksums(sums_path: str = DEFAULT_SUMS_FILE) -> Dict[str, str]:
+    """Loads recorded SHA-256 checksums from data/SHA256SUMS.txt."""
+    sums: Dict[str, str] = {}
+    if os.path.isfile(sums_path):
+        with open(sums_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split(maxsplit=1)
+                if len(parts) == 2:
+                    h, rel = parts[0], parts[1].replace("\\", "/").strip()
+                    sums[rel] = h
+    return sums
+
+
+def compute_file_sha256(filepath: str) -> str:
+    """Computes SHA-256 digest of a local file."""
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+class CampaignRunner:
+    """
+    Dedicated orchestrator executing the full Assignment 4 single-worker (p=1) campaign.
+    Reuses existing Phase 7 lifecycle, watchdog, measurement, validation, and logging mechanics.
+    """
+
+    def __init__(
+        self,
+        data_dir: str = DEFAULT_DATA_DIR,
+        results_csv: str = DEFAULT_RESULTS_FILE,
+        metadata_dir: str = METADATA_DIR,
+        cluster_manager: Optional[ClusterManager] = None,
+        session_budget_s: float = CAMPAIGN_GLOBAL_BUDGET_S,
+        sample_timeout_s: float = CAMPAIGN_SAMPLE_TIMEOUT_S,
+        startup_timeout_s: float = CAMPAIGN_STARTUP_TIMEOUT_S,
+        cleanup_timeout_s: float = CAMPAIGN_CLEANUP_TIMEOUT_S,
+        rss_ceiling_mib: float = AGGREGATE_RSS_CEILING_MIB,
+        host_floor_mib: float = HOST_AVAILABLE_RAM_FLOOR_MIB,
+        watchdog_interval_s: float = WATCHDOG_SAMPLE_INTERVAL_S,
+        plan: Optional[Tuple[CampaignSampleSpec, ...]] = None,
+    ):
+        self.data_dir = os.path.abspath(data_dir)
+        self.results_csv = os.path.abspath(results_csv)
+        self.metadata_dir = os.path.abspath(metadata_dir)
+        self.cluster_manager = cluster_manager
+        self.session_budget_s = session_budget_s
+        self.sample_timeout_s = sample_timeout_s
+        self.startup_timeout_s = startup_timeout_s
+        self.cleanup_timeout_s = cleanup_timeout_s
+        self.rss_ceiling_mib = rss_ceiling_mib
+        self.host_floor_mib = host_floor_mib
+        self.watchdog_interval_s = watchdog_interval_s
+
+        self.dense_dir = os.path.join(self.data_dir, "dense")
+        self.val_dir = os.path.join(self.data_dir, "validation")
+        self.sums_file = os.path.join(self.data_dir, "SHA256SUMS.txt")
+
+        self.plan = plan or CAMPAIGN_PLAN
+
+    def _get_framework_version(self) -> str:
+        """Retrieves distributed version string."""
+        try:
+            import distributed
+            return distributed.__version__
+        except Exception:
+            return "unknown"
+
+    def _load_matrix(self, filepath: str) -> np.ndarray:
+        """Loads a dense matrix CSV into a C-contiguous float64 array."""
+        if not os.path.isfile(filepath):
+            raise FileNotFoundError(f"Required matrix file not found: {filepath}")
+        mat = np.loadtxt(filepath, delimiter=",", dtype=np.float64)
+        return np.ascontiguousarray(mat, dtype=np.float64)
+
+    def run(self) -> Dict[str, Any]:
+        """
+        Executes the 36-sample single-worker campaign within the strict operational envelope.
+
+        Returns:
+            Summary dictionary of execution metrics, sample statuses, and sidecar path.
+        """
+        session_start_mono = time.perf_counter()
+        session_start_utc = datetime.now(timezone.utc).isoformat()
+        deadline_mono = session_start_mono + self.session_budget_s
+        run_id = f"campaign_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}"
+
+        print("================================================================================")
+        print("ASSIGNMENT 4 — PHASE 8 FULL SINGLE-WORKER CAMPAIGN EXECUTION")
+        print("================================================================================")
+        print(f"Run ID:                 {run_id}")
+        print(f"Session Start (UTC):    {session_start_utc}")
+        print(f"Global Session Budget:  {self.session_budget_s:.1f} s ({self.session_budget_s / 3600.0:.1f} hours)")
+        print(f"Per-Sample Timeout:     {self.sample_timeout_s:.1f} s")
+        print(f"Startup Timeout:        {self.startup_timeout_s:.1f} s")
+        print(f"Aggregate RSS Ceiling:  {self.rss_ceiling_mib:.1f} MiB (Watchdog)")
+        print(f"Host RAM Floor:         {self.host_floor_mib:.1f} MiB (Watchdog)")
+        print(f"Worker Configuration:   p={CAMPAIGN_WORKER_COUNT}, threads={CAMPAIGN_WORKER_THREADS}, OpenBLAS={CAMPAIGN_BLAS_THREADS}")
+        print(f"Matrix Dimension Set:   n in {CAMPAIGN_SIZES}, block_size={CAMPAIGN_BLOCK_SIZE}")
+        print(f"Total Planned Samples:  {len(self.plan)}")
+        print("================================================================================\n")
+
+        # 1. Statically validate the campaign plan and enforce Gate G1
+        validate_campaign_plan(
+            plan=self.plan,
+            expected_sizes=CAMPAIGN_SIZES,
+            expected_block_size=CAMPAIGN_BLOCK_SIZE,
+            expected_worker_count=CAMPAIGN_WORKER_COUNT,
+            expected_repetitions=CAMPAIGN_REPETITIONS,
+            sample_timeout_s=self.sample_timeout_s,
+            session_budget_s=self.session_budget_s,
+        )
+
+        cm = self.cluster_manager
+        owns_cluster = False
+        if cm is None:
+            cm = ClusterManager(
+                worker_count=CAMPAIGN_WORKER_COUNT,
+                threads_per_worker=CAMPAIGN_WORKER_THREADS,
+                worker_memory_limit=None,
+            )
+            owns_cluster = True
+
+        topology: Optional[ClusterTopology] = None
+        watchdog: Optional[ResourceWatchdog] = None
+        engine: Optional[DistributedBlockMatmul] = None
+        logger = RawResultsLogger(self.results_csv)
+
+        source_rev = get_git_commit_sha()
+        dist_ver = self._get_framework_version()
+
+        execution_records: List[MeasurementRecord] = []
+        checksum_tracker: Dict[int, List[float]] = {n: [] for n in CAMPAIGN_SIZES}
+        reference_checksums: Dict[int, Optional[float]] = {}
+        timed_out_n: Optional[int] = None
+        timed_out_sample_id: Optional[str] = None
+        early_abort_status: Optional[str] = None
+        early_abort_reason: Optional[str] = None
+        inputs_cache: Dict[int, Tuple[np.ndarray, np.ndarray, str, str, float]] = {}
+        sidecar_path: str = "unwritten"
+
+        try:
+            # 2. Check input files and hashes within session budget
+            recorded_sums = load_sha256_checksums(self.sums_file)
+
+            # 3. Pre-load input matrices for all dimensions in plan
+            distinct_sizes = sorted(list({spec.n for spec in self.plan}))
+            for n in distinct_sizes:
+                t_load_start = time.perf_counter()
+                a_path = os.path.join(self.dense_dir, f"A_{n}.csv")
+                b_path = os.path.join(self.dense_dir, f"B_{n}.csv")
+
+                a_mat = self._load_matrix(a_path)
+                b_mat = self._load_matrix(b_path)
+                load_duration = time.perf_counter() - t_load_start
+
+                rel_a = f"dense/A_{n}.csv"
+                rel_b = f"dense/B_{n}.csv"
+                sha_a = recorded_sums.get(rel_a) or compute_file_sha256(a_path)
+                sha_b = recorded_sums.get(rel_b) or compute_file_sha256(b_path)
+
+                inputs_cache[n] = (a_mat, b_mat, sha_a, sha_b, load_duration)
+                print(f"[INPUTS LOADED] n={n}: A={a_mat.shape}, B={b_mat.shape} (load time: {load_duration:.3f} s)")
+
+            # Load reference for n=250 validation
+            c_250_ref_path = os.path.join(self.val_dir, "reference", "C_250.csv")
+            c_250_ref: Optional[np.ndarray] = None
+            if os.path.isfile(c_250_ref_path):
+                c_250_ref = self._load_matrix(c_250_ref_path)
+                print(f"[REFERENCE LOADED] Loaded C_250.csv for analytical validation: shape={c_250_ref.shape}")
+
+            # 4. Check deadline before cluster startup
+            rem_startup = deadline_mono - time.perf_counter()
+            if rem_startup <= 0:
+                early_abort_status = "ABORTED_BUDGET"
+                early_abort_reason = "Global session budget reached before cluster startup."
+            else:
+                effective_startup_timeout = min(self.startup_timeout_s, rem_startup)
+                print(f"\n[CLUSTER] Starting LocalCluster (p=1, processes=True, threads=1, timeout={effective_startup_timeout:.1f}s)...")
+                topology = cm.start(timeout_s=effective_startup_timeout)
+                print(f"[CLUSTER] Started successfully in {topology.cluster_startup_s:.2f} s.")
+                print(f"[CLUSTER] Observed PIDs: Driver={topology.driver_pid}, Scheduler={topology.scheduler_pid}, "
+                      f"Nannies={topology.nanny_pids}, Workers={topology.worker_pids} (Total unique: {len(topology.all_pids)})")
+
+                # Start ResourceWatchdog on tracked PIDs
+                watchdog = ResourceWatchdog(
+                    pids_to_track=topology.all_pids,
+                    client=cm.client,
+                    cluster=cm.cluster,
+                    rss_ceiling_mib=self.rss_ceiling_mib,
+                    host_floor_mib=self.host_floor_mib,
+                    sample_interval_s=self.watchdog_interval_s,
+                    global_deadline_s=deadline_mono,
+                )
+                watchdog.start()
+                engine = DistributedBlockMatmul(client=cm.client, block_size=CAMPAIGN_BLOCK_SIZE)
+
+            # 5. Execute Campaign Matrix Plan
+            print(f"\n[ORCHESTRATOR] Beginning {len(self.plan)}-sample campaign execution sequence...")
+
+            for spec in self.plan:
+                now_mono = time.perf_counter()
+                rem_session = deadline_mono - now_mono
+                sample_ts = datetime.now(timezone.utc).isoformat()
+                a_mat, b_mat, sha_a, sha_b, load_dur = inputs_cache.get(spec.n, (None, None, "", "", 0.0))
+
+                # Check 1: Early abort condition from previous step or deadline exhaustion
+                if early_abort_status is not None:
+                    status_to_record = early_abort_status
+                    if early_abort_status == "NOT_RUN_AFTER_TIMEOUT":
+                        if timed_out_n is not None and spec.n == timed_out_n:
+                            abort_desc = f"Repetition omitted following timeout in sample {timed_out_sample_id} (n={spec.n}) per protocol §10.1."
+                        else:
+                            abort_desc = f"Skipped: campaign halted and cluster closed following timeout in sample {timed_out_sample_id} (n={timed_out_n}); cluster restart not authorized."
+                    else:
+                        abort_desc = early_abort_reason or "Aborted prior to sample execution."
+                    rec = MeasurementRecord(
+                        run_id=run_id,
+                        sample_id=spec.sample_id,
+                        timestamp_utc=sample_ts,
+                        method=CAMPAIGN_METHOD,
+                        framework=CAMPAIGN_FRAMEWORK,
+                        framework_version=dist_ver,
+                        source_revision=source_rev,
+                        compiler_version=None,
+                        build_flags=None,
+                        n=spec.n,
+                        dtype=CAMPAIGN_DTYPE,
+                        input_A_sha256=sha_a,
+                        input_B_sha256=sha_b,
+                        block_size=spec.block_size,
+                        algorithm_variant=CAMPAIGN_ALGORITHM_VARIANT,
+                        worker_count=spec.worker_count,
+                        process_count=len(topology.all_pids) if topology else 2,
+                        physical_machine_count=CAMPAIGN_PHYSICAL_MACHINE_COUNT,
+                        worker_threads=CAMPAIGN_WORKER_THREADS,
+                        openmp_threads=None,
+                        blas_threads=CAMPAIGN_BLAS_THREADS,
+                        repetition=spec.repetition,
+                        is_warmup=spec.is_warmup,
+                        execution_order=spec.execution_order,
+                        time_kernel_s=None,
+                        time_e2e_s=None,
+                        timing_boundary_id=CAMPAIGN_TIMING_BOUNDARY_ID,
+                        cluster_startup_s=topology.cluster_startup_s if topology else None,
+                        input_load_s=load_dur,
+                        client_to_worker_payload_bytes=None,
+                        worker_to_worker_payload_bytes=None,
+                        worker_to_client_payload_bytes=None,
+                        compressed_transfer_bytes=None,
+                        transfer_metric_source=None,
+                        object_nbytes=None,
+                        rss_driver_mib=None,
+                        rss_process_sum_peak_sampled_mib=None,
+                        peak_working_set_mib=None,
+                        dask_managed_memory_mib=None,
+                        checksum_sum=None,
+                        status=status_to_record,
+                        error_reason=abort_desc,
+                        timeout_limit_s=self.sample_timeout_s,
+                        elapsed_until_abort_s=None,
+                    )
+                    logger.log(rec)
+                    execution_records.append(rec)
+                    print(f"[{spec.sample_id}] Skipped -> {status_to_record} ({abort_desc})")
+                    continue
+
+                # Check 2: Global Session Deadline Check
+                if rem_session <= 0.0:
+                    early_abort_status = "ABORTED_BUDGET"
+                    early_abort_reason = f"Global session budget of {self.session_budget_s:.1f} s exhausted."
+                    rec = MeasurementRecord(
+                        run_id=run_id,
+                        sample_id=spec.sample_id,
+                        timestamp_utc=sample_ts,
+                        method=CAMPAIGN_METHOD,
+                        framework=CAMPAIGN_FRAMEWORK,
+                        framework_version=dist_ver,
+                        source_revision=source_rev,
+                        compiler_version=None,
+                        build_flags=None,
+                        n=spec.n,
+                        dtype=CAMPAIGN_DTYPE,
+                        input_A_sha256=sha_a,
+                        input_B_sha256=sha_b,
+                        block_size=spec.block_size,
+                        algorithm_variant=CAMPAIGN_ALGORITHM_VARIANT,
+                        worker_count=spec.worker_count,
+                        process_count=len(topology.all_pids) if topology else 2,
+                        physical_machine_count=CAMPAIGN_PHYSICAL_MACHINE_COUNT,
+                        worker_threads=CAMPAIGN_WORKER_THREADS,
+                        openmp_threads=None,
+                        blas_threads=CAMPAIGN_BLAS_THREADS,
+                        repetition=spec.repetition,
+                        is_warmup=spec.is_warmup,
+                        execution_order=spec.execution_order,
+                        time_kernel_s=None,
+                        time_e2e_s=None,
+                        timing_boundary_id=CAMPAIGN_TIMING_BOUNDARY_ID,
+                        cluster_startup_s=topology.cluster_startup_s if topology else None,
+                        input_load_s=load_dur,
+                        client_to_worker_payload_bytes=None,
+                        worker_to_worker_payload_bytes=None,
+                        worker_to_client_payload_bytes=None,
+                        compressed_transfer_bytes=None,
+                        transfer_metric_source=None,
+                        object_nbytes=None,
+                        rss_driver_mib=None,
+                        rss_process_sum_peak_sampled_mib=None,
+                        peak_working_set_mib=None,
+                        dask_managed_memory_mib=None,
+                        checksum_sum=None,
+                        status="ABORTED_BUDGET",
+                        error_reason=early_abort_reason,
+                        timeout_limit_s=self.sample_timeout_s,
+                        elapsed_until_abort_s=0.0,
+                    )
+                    logger.log(rec)
+                    execution_records.append(rec)
+                    print(f"[{spec.sample_id}] ABORTED_BUDGET: {early_abort_reason}")
+                    continue
+
+                # Check 3: Watchdog Pre-Execution Check
+                if watchdog.breach_detected:
+                    early_abort_status = "NOT_RUN_AFTER_OOM" if watchdog.breach_type == "OUT_OF_MEMORY" else "FAILED"
+                    early_abort_reason = watchdog.breach_reason or "Watchdog breach prior to execution."
+                    rec = MeasurementRecord(
+                        run_id=run_id,
+                        sample_id=spec.sample_id,
+                        timestamp_utc=sample_ts,
+                        method=CAMPAIGN_METHOD,
+                        framework=CAMPAIGN_FRAMEWORK,
+                        framework_version=dist_ver,
+                        source_revision=source_rev,
+                        compiler_version=None,
+                        build_flags=None,
+                        n=spec.n,
+                        dtype=CAMPAIGN_DTYPE,
+                        input_A_sha256=sha_a,
+                        input_B_sha256=sha_b,
+                        block_size=spec.block_size,
+                        algorithm_variant=CAMPAIGN_ALGORITHM_VARIANT,
+                        worker_count=spec.worker_count,
+                        process_count=len(topology.all_pids) if topology else 2,
+                        physical_machine_count=CAMPAIGN_PHYSICAL_MACHINE_COUNT,
+                        worker_threads=CAMPAIGN_WORKER_THREADS,
+                        openmp_threads=None,
+                        blas_threads=CAMPAIGN_BLAS_THREADS,
+                        repetition=spec.repetition,
+                        is_warmup=spec.is_warmup,
+                        execution_order=spec.execution_order,
+                        time_kernel_s=None,
+                        time_e2e_s=None,
+                        timing_boundary_id=CAMPAIGN_TIMING_BOUNDARY_ID,
+                        cluster_startup_s=topology.cluster_startup_s if topology else None,
+                        input_load_s=load_dur,
+                        client_to_worker_payload_bytes=None,
+                        worker_to_worker_payload_bytes=None,
+                        worker_to_client_payload_bytes=None,
+                        compressed_transfer_bytes=None,
+                        transfer_metric_source=None,
+                        object_nbytes=None,
+                        rss_driver_mib=None,
+                        rss_process_sum_peak_sampled_mib=watchdog.peak_process_sum_mib,
+                        peak_working_set_mib=None,
+                        dask_managed_memory_mib=None,
+                        checksum_sum=None,
+                        status=early_abort_status,
+                        error_reason=early_abort_reason,
+                        timeout_limit_s=self.sample_timeout_s,
+                        elapsed_until_abort_s=None,
+                    )
+                    logger.log(rec)
+                    execution_records.append(rec)
+                    print(f"[{spec.sample_id}] Skipped -> {early_abort_status}: {early_abort_reason}")
+                    continue
+
+                # 6. Execute Multiplication Sample
+                cur_timeout = min(self.sample_timeout_s, max(0.1, rem_session))
+                print(f"[{spec.sample_id}] Running (n={spec.n}, rep={spec.repetition}, warmup={spec.is_warmup}, timeout={cur_timeout:.1f}s)...")
+
+                res: DaskExecutionResult = engine.multiply(
+                    a_matrix=a_mat,
+                    b_matrix=b_mat,
+                    repetition_id=spec.repetition,
+                    timeout_s=cur_timeout,
+                    watchdog=watchdog,
+                    global_deadline_s=deadline_mono,
+                )
+
+                # 7. Post-execution Numerical Correctness Validation (outside primary timer)
+                final_status = res.status
+                final_error = res.error_reason
+
+                if res.status == "COMPLETED" and res.c_matrix is not None:
+                    # Invariant 1: Finitude and Shape Check (all n)
+                    if res.c_matrix.shape != (spec.n, spec.n) or res.c_matrix.dtype != np.float64:
+                        final_status = "FAILED"
+                        final_error = f"Validation failure: Invalid shape/dtype ({res.c_matrix.shape}, {res.c_matrix.dtype})"
+                        print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
+                    elif not np.all(np.isfinite(res.c_matrix)):
+                        final_status = "FAILED"
+                        final_error = "Validation failure: Non-finite values (NaN or Inf) detected."
+                        print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
+                    else:
+                        # Invariant 2: Ground-truth reference validation for n=250
+                        if spec.n == 250 and c_250_ref is not None:
+                            validator = MatrixValidator()
+                            v_res = validator.validate_matrices(res.c_matrix, c_250_ref)
+                            if not v_res.passed:
+                                final_status = "FAILED"
+                                final_error = f"Validation failure: {v_res.error_message}"
+                                print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
+                            else:
+                                print(f"[VALIDATION PASS] {spec.sample_id} verified against C_250.csv (|max_diff|={v_res.max_abs_diff:.2e})")
+
+                        # Invariant 3: Finitude and cross-repetition determinism for n >= 500
+                        elif spec.n >= 500:
+                            if not spec.is_warmup:
+                                if spec.repetition == 1:
+                                    # Repetition 1 establishes designated reference if completed successfully
+                                    if final_status == "COMPLETED":
+                                        reference_checksums[spec.n] = res.checksum
+                                        print(f"[VALIDATION REF] n={spec.n} rep=1 established reference checksum: {res.checksum:.4f}")
+                                    else:
+                                        reference_checksums[spec.n] = None
+                                        print(f"[VALIDATION REF FAIL] n={spec.n} rep=1 failed (status={final_status}); reference unavailable.")
+                                else:
+                                    # Repetitions 2..5 validate against designated Repetition 1 reference
+                                    ref_chk = reference_checksums.get(spec.n)
+                                    if ref_chk is not None:
+                                        diff = abs(res.checksum - ref_chk)
+                                        if diff > 1e-6:
+                                            final_status = "FAILED"
+                                            final_error = f"Validation failure: Checksum divergence {diff:.2e} > 1e-6 against rep=1 reference ({ref_chk:.4f})."
+                                            print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
+                                        else:
+                                            print(f"[VALIDATION PASS] n={spec.n} determinism verified: matches rep=1 (diff={diff:.2e})")
+                                    else:
+                                        print(f"[VALIDATION NOTICE] n={spec.n} rep={spec.repetition}: Designated reference rep=1 unavailable; cross-repetition comparison omitted.")
+
+                # Telemetry extraction
+                peak_rss = watchdog.peak_process_sum_mib
+                driver_rss = watchdog.samples[-1].rss_driver_mib if watchdog.samples else None
+                peak_ws = max(watchdog.peak_working_set_per_pid_mib.values()) if watchdog.peak_working_set_per_pid_mib else None
+
+                # Build record
+                rec = MeasurementRecord(
+                    run_id=run_id,
+                    sample_id=spec.sample_id,
+                    timestamp_utc=sample_ts,
+                    method=CAMPAIGN_METHOD,
+                    framework=CAMPAIGN_FRAMEWORK,
+                    framework_version=dist_ver,
+                    source_revision=source_rev,
+                    compiler_version=None,
+                    build_flags=None,
+                    n=spec.n,
+                    dtype=CAMPAIGN_DTYPE,
+                    input_A_sha256=sha_a,
+                    input_B_sha256=sha_b,
+                    block_size=spec.block_size,
+                    algorithm_variant=CAMPAIGN_ALGORITHM_VARIANT,
+                    worker_count=spec.worker_count,
+                    process_count=len(topology.all_pids) if topology else 2,
+                    physical_machine_count=CAMPAIGN_PHYSICAL_MACHINE_COUNT,
+                    worker_threads=CAMPAIGN_WORKER_THREADS,
+                    openmp_threads=None,
+                    blas_threads=CAMPAIGN_BLAS_THREADS,
+                    repetition=spec.repetition,
+                    is_warmup=spec.is_warmup,
+                    execution_order=spec.execution_order,
+                    time_kernel_s=None,
+                    time_e2e_s=res.time_e2e_s,
+                    timing_boundary_id=CAMPAIGN_TIMING_BOUNDARY_ID,
+                    cluster_startup_s=topology.cluster_startup_s if topology else None,
+                    input_load_s=load_dur,
+                    client_to_worker_payload_bytes=None,
+                    worker_to_worker_payload_bytes=None,
+                    worker_to_client_payload_bytes=None,
+                    compressed_transfer_bytes=None,
+                    transfer_metric_source=None,
+                    object_nbytes=res.object_nbytes,
+                    rss_driver_mib=driver_rss,
+                    rss_process_sum_peak_sampled_mib=peak_rss,
+                    peak_working_set_mib=peak_ws,
+                    dask_managed_memory_mib=None,
+                    checksum_sum=res.checksum,
+                    status=final_status,
+                    error_reason=final_error,
+                    timeout_limit_s=self.sample_timeout_s,
+                    elapsed_until_abort_s=res.elapsed_until_abort_s,
+                )
+                logger.log(rec)
+                execution_records.append(rec)
+
+                time_str = f"{res.time_e2e_s:.4f} s" if res.time_e2e_s is not None else "NULL"
+                chk_str = f"{res.checksum:.4f}" if res.checksum is not None else "NULL"
+                print(f"[{spec.sample_id}] Status: {final_status} | Time: {time_str} | Checksum: {chk_str} | Peak RSS: {peak_rss:.1f} MiB")
+
+                # Handle terminal abort states
+                if final_status == "OUT_OF_MEMORY":
+                    early_abort_status = "NOT_RUN_AFTER_OOM"
+                    early_abort_reason = f"OOM in sample {spec.sample_id}: {final_error}"
+                elif final_status in ("ABORTED_WATCHDOG", "ABORTED_BUDGET"):
+                    early_abort_status = final_status
+                    early_abort_reason = final_error
+                elif final_status == "TIMEOUT":
+                    print(f"[{spec.sample_id}] Sample timed out (> {self.sample_timeout_s:.1f} s limit).")
+                    print(f"[{spec.sample_id}] Enforcing protocol §10.1: safely closing cluster and omitting remaining repetitions.")
+                    timed_out_n = spec.n
+                    timed_out_sample_id = spec.sample_id
+                    early_abort_status = "NOT_RUN_AFTER_TIMEOUT"
+                    early_abort_reason = (
+                        f"Cluster safely closed following timeout in sample {spec.sample_id} (n={spec.n}). "
+                        f"Subsequent repetitions of n={spec.n} omitted per protocol §10.1; "
+                        f"cluster restart not authorized."
+                    )
+                    # Safely stop watchdog and close cluster immediately to prevent dispatching work to a busy/degraded worker
+                    if watchdog is not None:
+                        try:
+                            watchdog.stop()
+                        except Exception as we:
+                            print(f"[CLEANUP WARNING] Watchdog shutdown error: {we}")
+                        watchdog = None
+
+                    if cm is not None:
+                        try:
+                            cm.close(timeout_s=self.cleanup_timeout_s)
+                        except Exception as ce:
+                            print(f"[CLEANUP WARNING] Cluster teardown error: {ce}")
+                        cm = None
+
+        except Exception as e:
+            print(f"\n[ORCHESTRATOR ERROR] Unexpected exception during campaign: {e}")
+            if early_abort_status is None:
+                if time.perf_counter() >= deadline_mono:
+                    early_abort_status = "ABORTED_BUDGET"
+                    early_abort_reason = f"Global session budget exhausted: {e}"
+                else:
+                    early_abort_status = "FAILED"
+                    early_abort_reason = f"Startup or execution failure: {e}"
+
+            # Record any unrecorded specs as FAILED/ABORTED
+            recorded_ids = {r.sample_id for r in execution_records}
+            for spec in self.plan:
+                if spec.sample_id not in recorded_ids:
+                    a_mat, b_mat, sha_a, sha_b, load_dur = inputs_cache.get(spec.n, (None, None, "", "", 0.0))
+                    rec = MeasurementRecord(
+                        run_id=run_id,
+                        sample_id=spec.sample_id,
+                        timestamp_utc=datetime.now(timezone.utc).isoformat(),
+                        method=CAMPAIGN_METHOD,
+                        framework=CAMPAIGN_FRAMEWORK,
+                        framework_version=dist_ver,
+                        source_revision=source_rev,
+                        compiler_version=None,
+                        build_flags=None,
+                        n=spec.n,
+                        dtype=CAMPAIGN_DTYPE,
+                        input_A_sha256=sha_a,
+                        input_B_sha256=sha_b,
+                        block_size=spec.block_size,
+                        algorithm_variant=CAMPAIGN_ALGORITHM_VARIANT,
+                        worker_count=spec.worker_count,
+                        process_count=len(topology.all_pids) if topology else 2,
+                        physical_machine_count=CAMPAIGN_PHYSICAL_MACHINE_COUNT,
+                        worker_threads=CAMPAIGN_WORKER_THREADS,
+                        openmp_threads=None,
+                        blas_threads=CAMPAIGN_BLAS_THREADS,
+                        repetition=spec.repetition,
+                        is_warmup=spec.is_warmup,
+                        execution_order=spec.execution_order,
+                        time_kernel_s=None,
+                        time_e2e_s=None,
+                        timing_boundary_id=CAMPAIGN_TIMING_BOUNDARY_ID,
+                        cluster_startup_s=topology.cluster_startup_s if topology else None,
+                        input_load_s=load_dur,
+                        client_to_worker_payload_bytes=None,
+                        worker_to_worker_payload_bytes=None,
+                        worker_to_client_payload_bytes=None,
+                        compressed_transfer_bytes=None,
+                        transfer_metric_source=None,
+                        object_nbytes=None,
+                        rss_driver_mib=None,
+                        rss_process_sum_peak_sampled_mib=None,
+                        peak_working_set_mib=None,
+                        dask_managed_memory_mib=None,
+                        checksum_sum=None,
+                        status=early_abort_status,
+                        error_reason=early_abort_reason,
+                        timeout_limit_s=self.sample_timeout_s,
+                        elapsed_until_abort_s=None,
+                    )
+                    try:
+                        logger.log(rec)
+                    except Exception:
+                        pass
+                    execution_records.append(rec)
+
+        finally:
+            # 8. Clean Shutdown
+            print("\n[CLEANUP] Stopping ResourceWatchdog and tearing down LocalCluster...")
+            if watchdog is not None:
+                try:
+                    watchdog.stop()
+                except Exception as we:
+                    print(f"[CLEANUP WARNING] Watchdog shutdown error: {we}")
+
+            if cm is not None:
+                try:
+                    cm.close(timeout_s=self.cleanup_timeout_s)
+                except Exception as ce:
+                    print(f"[CLEANUP WARNING] Cluster teardown error: {ce}")
+
+            # 9. Generate Campaign Sidecar
+            sidecar_topology = {}
+            if topology is not None:
+                sidecar_topology = {
+                    "driver_pid": topology.driver_pid,
+                    "scheduler_pid": topology.scheduler_pid,
+                    "nanny_pids": topology.nanny_pids,
+                    "worker_pids": topology.worker_pids,
+                    "all_pids": topology.all_pids,
+                    "observed_worker_count": topology.worker_count_observed,
+                    "threads_per_worker": topology.threads_per_worker,
+                    "cluster_startup_s": topology.cluster_startup_s,
+                }
+            elif cm is not None:
+                sidecar_topology = {
+                    "startup_status": early_abort_status or "FAILED",
+                    "driver_pid": os.getpid(),
+                    "all_pids": [os.getpid()],
+                }
+
+            completed_count = sum(1 for r in execution_records if r.status == "COMPLETED")
+            failed_count = sum(1 for r in execution_records if r.status != "COMPLETED")
+            sidecar_status = early_abort_status if early_abort_status is not None else (
+                "COMPLETED" if failed_count == 0 else "PARTIAL"
+            )
+
+            try:
+                sidecar_path = generate_campaign_sidecar(
+                    run_id=run_id,
+                    campaign_name="Phase 8 Full Single-Worker Campaign",
+                    worker_count=CAMPAIGN_WORKER_COUNT,
+                    block_size=CAMPAIGN_BLOCK_SIZE,
+                    n_values=list(CAMPAIGN_SIZES),
+                    repetitions=CAMPAIGN_REPETITIONS,
+                    cluster_topology=sidecar_topology,
+                    output_dir=self.metadata_dir,
+                    status=sidecar_status,
+                    failure_reason=early_abort_reason,
+                )
+                print(f"[SIDECAR] Generated metadata companion: {sidecar_path}")
+            except Exception as se:
+                print(f"[SIDECAR ERROR] Failed to generate sidecar: {se}")
+
+        session_duration = time.perf_counter() - session_start_mono
+        completed_count = sum(1 for r in execution_records if r.status == "COMPLETED")
+        failed_count = sum(1 for r in execution_records if r.status != "COMPLETED")
+
+        print("\n================================================================================")
+        print("CAMPAIGN EXECUTION COMPLETE")
+        print("================================================================================")
+        print(f"Total Session Duration: {session_duration:.2f} s / {self.session_budget_s:.1f} s")
+        print(f"Samples Attempted:      {len(execution_records)} / {len(self.plan)}")
+        print(f"Samples Completed:      {completed_count}")
+        print(f"Samples Incomplete:     {failed_count}")
+        print(f"Results CSV:            {self.results_csv}")
+        print(f"Sidecar JSON:           {sidecar_path}")
+        print("================================================================================\n")
+
+        return {
+            "run_id": run_id,
+            "session_duration_s": session_duration,
+            "session_budget_s": self.session_budget_s,
+            "total_samples": len(self.plan),
+            "completed_samples": completed_count,
+            "failed_samples": failed_count,
+            "sidecar_path": sidecar_path,
+            "results_csv": self.results_csv,
+            "records": execution_records,
+        }

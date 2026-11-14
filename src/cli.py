@@ -22,6 +22,11 @@ if REPO_ROOT_DIR not in sys.path:
 
 import numpy as np
 
+from src.dask_matrix.campaign_runner import (
+    CampaignRunner,
+    CAMPAIGN_PLAN,
+    validate_campaign_plan,
+)
 from src.dask_matrix.cluster_manager import (
     ClusterManager,
     verify_multiworker_permission,
@@ -93,6 +98,11 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Execute the bounded Phase 7 Pilot experiment (fixed immutable matrix: n in {250, 500}, b=250, p=1, 6 runs).",
     )
+    parser.add_argument(
+        "--campaign",
+        action="store_true",
+        help="Execute the full Phase 8 single-worker campaign (n in {250, 500, 750, 1000, 1500, 2000}, b=250, p=1, 36 runs).",
+    )
     return parser.parse_args()
 
 
@@ -140,6 +150,36 @@ def validate_configuration(n: int, b: int, p: int) -> bool:
 def main() -> int:
     args = parse_arguments()
 
+    if args.pilot and args.campaign:
+        sys.stderr.write("[ERROR] Cannot specify both --pilot and --campaign simultaneously.\n")
+        return 1
+
+    if args.campaign:
+        print("[CAMPAIGN MODE] Full Phase 8 Single-Worker Campaign selected.")
+        print("[CAMPAIGN MODE] Enforcing fixed campaign matrix: n in {250, 500, 750, 1000, 1500, 2000}, b=250, p=1, 36 runs.")
+
+        if args.workers != 1:
+            sys.stderr.write(f"[CAMPAIGN ERROR] Single-worker campaign strictly requires p=1. Got --workers={args.workers}.\n")
+            return 1
+        if args.block_size != 250:
+            print(f"[CAMPAIGN WARNING] Argument --block-size={args.block_size} ignored. Campaign strictly uses b=250.")
+
+        if args.check_config:
+            print("[CAMPAIGN CONFIG CHECK] Validating static campaign requirements...")
+            validate_campaign_plan(CAMPAIGN_PLAN)
+            for n in (250, 500, 750, 1000, 1500, 2000):
+                validate_configuration(n, 250, 1)
+            print(f"[CAMPAIGN CONFIG CHECK] Plan contains {len(CAMPAIGN_PLAN)} planned executions.")
+            print("[SUCCESS] Campaign configuration check passed. Exiting (--check-config).")
+            return 0
+
+        # Execute Campaign
+        runner = CampaignRunner()
+        summary = runner.run()
+        if summary.get("failed_samples", 0) > 0 and summary.get("completed_samples", 0) == 0:
+            return 1
+        return 0
+
     if args.pilot:
         print("[PILOT MODE] Bounded Phase 7 Pilot selected.")
         print("[PILOT MODE] Enforcing fixed pilot matrix: n in {250, 500}, b=250, p=1, 6 runs.")
@@ -180,6 +220,7 @@ def main() -> int:
     print("\n[NOTE] Execution of matrix calculations or worker clusters belongs to Phase 5–8.")
     print("Use --check-config for static verification in Phase 4.")
     print("Use --pilot to execute the bounded Phase 7 Pilot.")
+    print("Use --campaign to execute the full Phase 8 Single-Worker Campaign.")
     return 0
 
 
