@@ -14,6 +14,7 @@ import os
 import sys
 import time
 from typing import Any, Dict, List, Optional
+import psutil
 
 
 DECISIONS_DIR = os.path.abspath(
@@ -118,9 +119,12 @@ class ClusterManager:
         self.client: Optional[Any] = None
         self.topology: Optional[ClusterTopology] = None
 
-    def start(self) -> ClusterTopology:
+    def start(self, timeout_s: float = 30.0) -> ClusterTopology:
         """
         Starts the LocalCluster and Client, enforcing thread limits and DEC-01.
+
+        Args:
+            timeout_s: Maximum duration in seconds to wait for workers to register (default: 30.0).
 
         Returns:
             ClusterTopology descriptor.
@@ -142,66 +146,204 @@ class ClusterManager:
 
         t0 = time.perf_counter()
 
-        # In LocalCluster with processes=True, workers run under Nanny processes.
-        # The scheduler runs in the driver process or its own thread/loop.
-        self.cluster = LocalCluster(
-            n_workers=self.worker_count,
-            threads_per_worker=self.threads_per_worker,
-            processes=True,
-            memory_limit=self.worker_memory_limit,
-            silence_logs=True,
-        )
-        self.client = Client(self.cluster)
-        self.client.wait_for_workers(n_workers=self.worker_count, timeout=30.0)
+        try:
+            # Immediate check for non-positive startup timeout budget
+            if timeout_s <= 0.0:
+                raise TimeoutError(
+                    f"Cluster startup timeout_s must be positive, got {timeout_s:.4f}s."
+                )
 
-        startup_duration = time.perf_counter() - t0
+            # In LocalCluster with processes=True, workers run under Nanny processes.
+            # The scheduler runs in the driver process or its own thread/loop.
+            self.cluster = LocalCluster(
+                n_workers=self.worker_count,
+                threads_per_worker=self.threads_per_worker,
+                processes=True,
+                memory_limit=self.worker_memory_limit,
+                silence_logs=True,
+            )
 
-        # Discover process hierarchy
-        driver_pid = os.getpid()
-        scheduler_pid = getattr(self.cluster.scheduler, "pid", driver_pid)
+            # Check remaining budget after LocalCluster construction
+            elapsed_lc = time.perf_counter() - t0
+            rem_timeout = timeout_s - elapsed_lc
+            if rem_timeout <= 0.0:
+                raise TimeoutError(
+                    f"Cluster startup exceeded timeout_s={timeout_s:.1f}s during LocalCluster initialization."
+                )
 
-        nanny_pids: List[int] = []
-        worker_pids: List[int] = []
+            # Pass actual remaining timeout to Client connection (no artificial minimum)
+            self.client = Client(self.cluster, timeout=rem_timeout)
 
-        # Extract nannies and workers
-        for worker_key, nanny in self.cluster.workers.items():
-            if hasattr(nanny, "pid") and nanny.pid:
-                nanny_pids.append(nanny.pid)
-            if hasattr(nanny, "process") and hasattr(nanny.process, "pid") and nanny.process.pid:
-                worker_pids.append(nanny.process.pid)
+            # Check remaining budget after Client construction
+            elapsed_cl = time.perf_counter() - t0
+            rem_timeout = timeout_s - elapsed_cl
+            if rem_timeout <= 0.0:
+                raise TimeoutError(
+                    f"Cluster startup exceeded timeout_s={timeout_s:.1f}s during Client initialization."
+                )
 
-        # Collect unique PIDs for watchdog monitoring
-        all_pids = sorted(list(set([driver_pid, scheduler_pid] + nanny_pids + worker_pids)))
+            # Wait for worker registration within actual remaining budget (no artificial minimum)
+            self.client.wait_for_workers(n_workers=self.worker_count, timeout=rem_timeout)
 
-        self.topology = ClusterTopology(
-            worker_count_requested=self.worker_count,
-            worker_count_observed=len(self.cluster.workers),
-            threads_per_worker=self.threads_per_worker,
-            driver_pid=driver_pid,
-            scheduler_pid=scheduler_pid,
-            nanny_pids=nanny_pids,
-            worker_pids=worker_pids,
-            all_pids=all_pids,
-            cluster_startup_s=startup_duration,
-            threading_env=applied_env,
-        )
+            startup_duration = time.perf_counter() - t0
 
-        return self.topology
+            # Discover process hierarchy
+            driver_pid = os.getpid()
+            scheduler_pid = getattr(self.cluster.scheduler, "pid", driver_pid)
+            if not isinstance(scheduler_pid, int):
+                scheduler_pid = driver_pid
+
+            nanny_pids: List[int] = []
+            worker_pids: List[int] = []
+
+            # Extract nannies and workers
+            for worker_key, nanny in self.cluster.workers.items():
+                if hasattr(nanny, "pid") and nanny.pid:
+                    nanny_pids.append(nanny.pid)
+                if hasattr(nanny, "process") and hasattr(nanny.process, "pid") and nanny.process.pid:
+                    worker_pids.append(nanny.process.pid)
+
+            # Collect unique PIDs for watchdog monitoring
+            all_pids = sorted(list(set([driver_pid, scheduler_pid] + nanny_pids + worker_pids)))
+
+            self.topology = ClusterTopology(
+                worker_count_requested=self.worker_count,
+                worker_count_observed=len(self.cluster.workers),
+                threads_per_worker=self.threads_per_worker,
+                driver_pid=driver_pid,
+                scheduler_pid=scheduler_pid,
+                nanny_pids=nanny_pids,
+                worker_pids=worker_pids,
+                all_pids=all_pids,
+                cluster_startup_s=startup_duration,
+                threading_env=applied_env,
+            )
+
+            return self.topology
+
+        except Exception as exc:
+            # On any startup failure (Client failure, worker registration timeout, etc.),
+            # ensure all partially created resources are immediately torn down to prevent orphans.
+            self.close(timeout_s=min(5.0, timeout_s))
+            raise exc
 
     def close(self, timeout_s: float = 5.0) -> None:
-        """Orderly closes the Client and LocalCluster."""
-        if self.client is not None:
+        """
+        Orderly closes the Client and LocalCluster within a shared deadline budget,
+        and forcefully terminates any orphaned child processes (workers, nannies).
+        """
+        driver_pid = os.getpid()
+        cleanup_start = time.perf_counter()
+        deadline = cleanup_start + timeout_s
+
+        # 1. Discover child processes before closing cluster.
+        # Explicitly capture process identity: mapping of PID -> expected creation time (float)
+        target_proc_identities: Dict[int, float] = {}
+
+        candidate_pids: List[int] = []
+        if self.cluster is not None and hasattr(self.cluster, "workers"):
             try:
-                self.client.close(timeout=timeout_s)
+                for worker_key, nanny in self.cluster.workers.items():
+                    if hasattr(nanny, "pid") and nanny.pid:
+                        candidate_pids.append(nanny.pid)
+                    if hasattr(nanny, "process") and hasattr(nanny.process, "pid") and nanny.process.pid:
+                        candidate_pids.append(nanny.process.pid)
+            except Exception:
+                pass
+
+        if self.topology is not None:
+            candidate_pids.extend(self.topology.nanny_pids)
+            candidate_pids.extend(self.topology.worker_pids)
+
+        # Exclude driver PID, invalid PIDs, and deduplicate
+        for pid in sorted(list(set(candidate_pids))):
+            if pid != driver_pid and pid > 0:
+                try:
+                    if psutil.pid_exists(pid):
+                        p = psutil.Process(pid)
+                        if p.is_running():
+                            target_proc_identities[pid] = p.create_time()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+
+        # Helper to verify whether process still exists with matching identity
+        def _get_verified_process(pid: int, expected_ctime: float) -> Optional[psutil.Process]:
+            try:
+                if not psutil.pid_exists(pid):
+                    return None
+                proc = psutil.Process(pid)
+                if not proc.is_running():
+                    return None
+                # Verify creation time matches within 100 microseconds (protecting against PID reuse)
+                proc_ctime = proc.create_time()
+                if isinstance(proc_ctime, (int, float)) and isinstance(expected_ctime, (int, float)):
+                    if abs(proc_ctime - expected_ctime) < 1e-4:
+                        return proc
+                    return None
+                elif proc_ctime == expected_ctime:
+                    return proc
+                return None  # PID was reused by another process
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                return None
+
+        # 2. Orderly close Client with shared remaining deadline (actual remaining time)
+        if self.client is not None:
+            rem = deadline - time.perf_counter()
+            try:
+                if rem > 0.0:
+                    self.client.close(timeout=rem)
             except Exception:
                 pass
             finally:
                 self.client = None
 
+        # 3. Orderly close LocalCluster with shared remaining deadline (actual remaining time)
         if self.cluster is not None:
+            rem = deadline - time.perf_counter()
             try:
-                self.cluster.close(timeout=timeout_s)
+                if rem > 0.0:
+                    self.cluster.close(timeout=rem)
             except Exception:
                 pass
             finally:
                 self.cluster = None
+
+        # 4. Check process termination: Send terminate() only to alive processes with matching identity
+        alive_procs: List[psutil.Process] = []
+        for pid, ctime in target_proc_identities.items():
+            proc = _get_verified_process(pid, ctime)
+            if proc is not None:
+                try:
+                    proc.terminate()
+                    alive_procs.append(proc)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+
+        # 5. Wait for termination within remaining deadline budget; kill only confirmed alive matching processes
+        rem = deadline - time.perf_counter()
+        if rem > 0.05 and alive_procs:
+            try:
+                gone, alive = psutil.wait_procs(alive_procs, timeout=rem)
+                for proc in alive:
+                    expected_ctime = target_proc_identities.get(proc.pid)
+                    if expected_ctime is not None and _get_verified_process(proc.pid, expected_ctime) is not None:
+                        try:
+                            proc.kill()
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+            except Exception:
+                for proc in alive_procs:
+                    expected_ctime = target_proc_identities.get(proc.pid)
+                    if expected_ctime is not None and _get_verified_process(proc.pid, expected_ctime) is not None:
+                        try:
+                            proc.kill()
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+        else:
+            for proc in alive_procs:
+                expected_ctime = target_proc_identities.get(proc.pid)
+                if expected_ctime is not None and _get_verified_process(proc.pid, expected_ctime) is not None:
+                    try:
+                        proc.kill()
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
