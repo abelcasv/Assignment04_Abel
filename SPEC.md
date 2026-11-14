@@ -145,7 +145,7 @@ No AI agent may silently alter these decisions without explicit student authoriz
 - **Status:** **Approved (ADR-001)**: **Dask Distributed**.
 - **Architecture:** 2D block matrix multiplication with intermediate binary-tree reduction for output blocks.
 - **Local Kernel:** `numpy.matmul` executing on contiguous `float64` blocks.
-- **Threading Control:** Strictly 1 thread per worker (`threads_per_worker=1`). Internal BLAS/OpenMP threading is restricted via environment variables: `OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `NUMEXPR_NUM_THREADS=1`.
+- **Threading Control:** Strictly 1 thread per worker (`threads_per_worker=1`). Internal BLAS/OpenMP threading is restricted via environment variables: `OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `NUMEXPR_NUM_THREADS=1`. Phase 6 dynamically verified via `threadpoolctl` that Worker 0 loaded `libscipy_openblas64` (v0.3.34.106.0) with internal thread count pinned to 1, worker framework `nthreads=1`, and environment variables inherited prior to worker process launch. No OpenMP runtime was loaded in the worker.
 
 ### DEC-04 — Baseline provenance and immutability
 - **Status:** **Frozen and Certified in Phase 2.1**.
@@ -184,8 +184,8 @@ No AI agent may silently alter these decisions without explicit student authoriz
   - **Watchdog sampling interval (250 ms):** *Student-selected operational monitoring parameter*. Measures sampled peak aggregate RSS; may miss transient peaks shorter than 250 ms.
 - **Watchdog Accounting Semantics:**
   - The sum of process RSS is not equivalent to unique physical RAM usage because shared pages are counted across multiple PIDs.
-  - Process identities must be tracked using unique PIDs for driver, scheduler, nanny, and worker processes.
-  - Dask's per-worker `memory_limit` is a best-effort management target, not a hard aggregate process-memory cap.
+  - Process identities must be tracked using unique operating-system PIDs mapped to logical roles (driver, scheduler, nanny, worker). In the verified Windows in-process `LocalCluster` deployment, the Driver process hosts the Client, Scheduler, and LocalCluster Nanny management instance, while Worker 0 runs in an independent child process (2 distinct OS PIDs observed for $p=1$). Project accounting records actual unique PIDs observed per run rather than imposing an unverified universal formula.
+  - When `memory_limit=None`, Dask's internal auto-spill/pause mechanisms are inactive; the project `ResourceWatchdog` (2.5 GiB sampled aggregate RSS ceiling, 1.0 GiB host available-RAM floor) is the specified active operational safeguard (a sampled check, not a hard OS process limit).
   - **Safe Stop Procedure:** On threshold breach, immediately cancel client tasks (`client.cancel`), gracefully close cluster/client within 5 s, forcefully terminate lingering child PIDs (`terminate() / kill()`), and log status as `OUT_OF_MEMORY` or `ABORTED_WATCHDOG`.
   - The pilot (Phase 7) must empirically determine if the workload operates within these limits; no pilot is launched in this phase.
 
@@ -300,7 +300,7 @@ Process memory metrics must be clearly distinguished:
 5. **Dask Managed Memory:** Memory tracked by Dask workers for task results.
 6. **Structural Memory:** Theoretical $3 \cdot 8n^2$ bytes for matrices $A, B, C$.
 7. **Host Available Memory:** System-wide available physical memory.
-8. **Dask `memory_limit`:** Best-effort per-worker target; not a hard aggregate limit. Primary safety is enforced by the global 2.5 GiB watchdog.
+8. **Dask `memory_limit`:** Configured as `None` in `ClusterManager`, leaving Dask per-worker spill/pause inactive. Primary operational safety is actively enforced across all cluster PIDs by the global 2.5 GiB aggregate RSS watchdog and 1.0 GiB host available-RAM floor.
 
 ---
 
@@ -378,7 +378,7 @@ Assignment04/
 | G4 | Protocol / Budgets | **PASSED** | `docs/experimental_protocol.md` approved and synchronized. |
 | G5 | Implementation (Prompt 4) | **NOT STARTED** | Implementation-only: Dask implementation and runtime adapters; static Makefile review. Prohibited: compilation, benchmarks, pilots. |
 | G6 | Correctness & Build (Prompt 5) | **NOT STARTED** | Authorizes compiling baselines to `build/bin/`, A1 assembly/disassembly check (`gcc -S`), and correctness fixtures. Prohibited: benchmarks. |
-| G7 | Environment (Prompt 6) | **NOT STARTED** | Runtime processes, unique PIDs, 1 thread/worker, and idle memory calibration verified. |
+| G7 | Environment (Prompt 6) | **NOT STARTED** | Runtime processes, unique PIDs, 1 thread/worker, OpenBLAS thread limit (verified via threadpoolctl), and idle memory calibration verified. |
 | G8 | Pilot & Benchmark (Prompts 7–8)| **NOT STARTED** | Pilot (Prompt 7; requires permission only if $p>1$ is tested); Full campaign (Prompt 8; never substitute $p=1$ for blocked $p>1$). |
 | G9 | Data Audit and Analysis | **NOT STARTED** | Raw data audited; derived tables and figures generated deterministically. |
 | G10 | Final Audit | **NOT STARTED** | Code, data, figures, README, and report fully reconciled with specification. |

@@ -80,7 +80,7 @@ No se utilizará la palabra «significativo» en sentido estadístico salvo que 
 | `omp_tiled_b32` | A3 | Variante OpenMP tiled con bloque 32×32 | Método secundario; no sustituye a `omp_ikj`. |
 | `dask_block_2d` | A4 | Bloques 2D; `numpy.matmul`; reducción por árbol binario | Implementación distribuida objeto del estudio. |
 
-Para Dask se mantendrá un hilo por worker y se limitará a un hilo el backend numérico interno. Se registrarán las variables de entorno y el backend BLAS realmente detectado. No se asumirá que `OMP_NUM_THREADS=1` por sí solo controla todos los backends; se registrarán también, cuando correspondan, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS` y `NUMEXPR_NUM_THREADS`.
+Para Dask se mantendrá un hilo por worker y se limitará a un hilo el backend numérico interno. Se registrarán las variables de entorno y el backend BLAS realmente detectado. No se asumirá que `OMP_NUM_THREADS=1` por sí solo controla todos los backends; se registrarán también, cuando correspondan, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS` y `NUMEXPR_NUM_THREADS`. En Phase 6 se verificó dinámicamente mediante `threadpoolctl` que el worker cargó `libscipy_openblas64` (v0.3.34.106.0) con `num_threads=1` y `nthreads=1` (con variables de entorno heredadas como 1 antes de lanzar el worker; sin biblioteca OpenMP cargada en el worker).
 
 Para la comparación principal se propone `OMP_NUM_THREADS=10` en `omp_ikj` y `omp_tiled_b32`, con `OMP_DYNAMIC=FALSE` si el runtime lo admite; el número real de hilos se verificará y registrará. `seq_ikj` permanece secuencial. La comparación con OpenMP no se presentará como equivalente en recursos a Dask: un proceso con diez hilos y diez procesos Dask son topologías distintas.
 
@@ -184,6 +184,12 @@ La máquina conocida es un único host Windows 11 con Intel Core i5-1335U, 10 n�
 En Dask se propone `LocalCluster(n_workers=p, threads_per_worker=1, processes=True)`. En Windows, el punto de entrada que cree el cluster deberá estar protegido por `if __name__ == "__main__":` debido al modelo de creación de procesos.
 
 `p` significa número de workers Dask, no número total de procesos del sistema. Driver, scheduler, nanny y worker se contabilizarán mediante los PIDs observados; no se fijará un número teórico de procesos en la tabla de resultados.
+
+#### Distinción conceptual de roles y procesos en LocalCluster:
+- **Roles lógicos de Dask:** Client, Scheduler, Nanny y Worker son roles lógicos y de ejecución diferenciados; un rol lógico no implica necesariamente un PID independiente en el sistema operativo.
+- **Topología observada de `LocalCluster` en Windows:** Para la configuración exacta evaluada en Phase 6 (Dask Distributed 2026.8.0, `LocalCluster(processes=True, n_workers=1, threads_per_worker=1)` sobre Windows 11), el proceso Driver aloja el Client, el Scheduler y la instancia de gestión Nanny de LocalCluster, mientras que el Worker 0 se ejecuta en un proceso hijo independiente del sistema operativo. Se observaron exactamente 2 PIDs únicos para $p=1$. Este es un resultado de topología empíricamente observado para este entorno y modo de arranque concreto, no una ley universal aplicable a todo despliegue, plataforma o versión de Dask.
+- **Despliegues CLI independientes:** En despliegues mediante herramientas CLI independientes (`dask scheduler`, `dask worker`), los procesos pueden diferir, pero no se asume ninguna fórmula teórica fija (como el nominal $1+2p$) sin verificación separada; no se sustituye una fórmula fija no demostrada por otra.
+- **Regla contable obligatoria:** El proyecto registra los PIDs reales únicos del sistema operativo observados en cada ejecución y mapea los roles lógicos a dichos PIDs. En despliegues in-process de `LocalCluster`, Scheduler y Nanny pueden compartir PID con el Driver. Para configuraciones de workers aún no autorizadas o ejecutadas, no se proyecta un recuento de procesos no verificado.
 
 ### 3.2 Strong scaling principal
 
@@ -382,7 +388,7 @@ Se informarán por separado:
 | Métrica | Definición | Limitación |
 |---|---|---|
 | RSS/Working Set actual | Memoria residente de cada PID en cada instante muestreado. En Windows se indicará el campo/API concreto. | Es una medida por proceso y puede incluir páginas compartidas. |
-| Suma RSS de procesos | Suma de RSS del driver, scheduler, nanny y workers en cada instante. | Puede contar dos veces páginas compartidas; no equivale exactamente a memoria física única del host. |
+| Suma RSS de procesos | Suma de RSS del conjunto de PIDs únicos observados (driver, scheduler, nanny y workers) en cada instante. Cuando Scheduler y Nanny comparten el PID del Driver en LocalCluster, cada PID único se muestrea una sola vez. | Puede contar dos veces páginas compartidas entre PIDs distintos; no equivale exactamente a memoria física única del host. |
 | Pico muestreado de suma RSS | Máximo temporal de la suma RSS simultánea, muestreada cada 250 ms. | Picos más breves que el intervalo pueden no capturarse. |
 | Peak Working Set | Máximo histórico por proceso/PID. | No se sumarán máximos individuales como si fueran simultáneos. |
 | Memoria gestionada Dask | Bytes que Dask contabiliza como objetos gestionados por worker. | No incluye todo el RSS, buffers, temporales BLAS, Python ni memoria nativa no gestionada. |
@@ -395,7 +401,13 @@ La suma RSS de procesos se presentará como proxy de contabilidad de procesos, n
 
 `memory_limit` es un límite objetivo por worker y, con procesos, se aplica de forma best-effort; no es un límite duro del RSS total del experimento. Dask puede iniciar spill a disco, pausar trabajo y, según umbrales/configuración, reiniciar workers. Se registrará la configuración y el comportamiento efectivo de la versión instalada.
 
-No se utilizará la fórmula fija `(3 GiB − 1 GiB)/p`: asignaría límites por worker demasiado bajos para algunos valores de `p` y no reservaría correctamente scheduler/nanny/overhead. El `memory_limit` concreto se decidirá en G7 después de medir el RSS base de los procesos ociosos y estimar el espacio de trabajo por worker. El watchdog global descrito en §10 será la salvaguarda de seguridad, no `memory_limit` por sí solo.
+En Phase 6 se verificó y reconcilió la política efectiva con `ClusterManager`:
+- Se pasa `memory_limit=None` al crear `LocalCluster`, lo que significa que no se aplica ningún límite de memoria por worker en Dask.
+- Los mecanismos automáticos de spill a disco, pausa o terminación de workers dependientes de dicho límite interno de Dask permanecen inactivos en esta configuración.
+- El watchdog agregado de RSS del proyecto (`ResourceWatchdog`, §10) se mantiene como la salvaguarda de seguridad operacional especificada.
+- Se preserva íntegramente la decisión previa del protocolo de no utilizar la fórmula fija `(3 GiB − 1 GiB)/p`.
+- El techo agregado de RSS de 2.5 GiB, el suelo de RAM disponible de 1.0 GiB y el intervalo de muestreo de 250 ms permanecen estrictamente inalterados.
+- Se subraya que el watchdog es una salvaguarda operacional muestreada, no un límite duro del sistema operativo.
 
 ---
 
@@ -519,8 +531,8 @@ Los umbrales de memoria se establecen para proteger la estabilidad del host Wind
 #### Semántica obligatoria de métricas y procesos:
 1. **No equivalencia de la suma RSS con RAM física exclusiva:** La suma de RSS de múltiples procesos (`rss_process_sum`) **no es equivalente** a memoria física RAM única consumida, ya que páginas de memoria compartida (bibliotecas dinámicas de C/Windows, intérprete Python, código compartido) se contabilizan simultáneamente en cada PID. La suma RSS es un proxy conservador de contabilidad de procesos.
 2. **Pico muestreado vs. pico real:** El intervalo de muestreo de 250 ms mide el *pico muestreado* (*sampled peak aggregate RSS*) y **puede no registrar picos transitorios breves** que ocurran entre dos instantes de sondeo.
-3. **Rastreo estricto de PIDs:** El watchdog debe identificar y rastrear mediante PIDs únicos individuales todos los procesos activos del árbol: Driver/Client, Scheduler, Nannies y Workers.
-4. **Semántica de `memory_limit` de Dask:** El parámetro `memory_limit` por worker en Dask es una meta de gestión interna de mejor esfuerzo (*best-effort*) que activa pausas o derrame a disco (*spill*); **no constituye un límite duro del uso total de memoria física del proceso en el sistema operativo**. La salvaguarda de seguridad primaria reside en el watchdog global externo.
+3. **Rastreo estricto de PIDs:** El watchdog debe identificar y rastrear mediante PIDs únicos individuales todos los procesos activos del árbol: Driver/Client, Scheduler, Nannies y Workers. En `LocalCluster` donde Scheduler y Nanny comparten el PID del Driver, se rastrean los PIDs únicos del conjunto sin duplicar muestras.
+4. **Semántica de `memory_limit` de Dask:** Con `memory_limit=None`, Dask no aplica límites de derrame o pausa por worker; la salvaguarda de seguridad operacional primaria reside exclusivamente en el watchdog global externo (2.5 GiB de techo agregado y 1.0 GiB de suelo en host como límites muestreados, no límites duros del sistema operativo).
 
 #### Procedimiento formal de parada segura del watchdog:
 Si el watchdog detecta que la suma RSS muestreada alcanza o supera 2.5 GiB, o que la memoria disponible del host cae por debajo de 1.0 GiB:
@@ -655,7 +667,7 @@ Todas las figuras tendrán ejes, unidades, `n`, `b`, workers/threads, topología
 | G4 | Protocol / Budget | **PASSED** | Protocolo experimental formalmente sincronizado y auditado en este documento. |
 | G5 | Implementation | **NOT STARTED** | Implementación de Dask y adaptadores runtime; revisión estática sin compilación. Requiere Prompt 4. |
 | G6 | Correctness & Build | **NOT STARTED** | Compilación de baselines a `build/bin/`, inspección de ensamblado de A1 (`gcc -S`), y fixtures de corrección. Requiere Prompt 5. |
-| G7 | Environment / Topology | **NOT STARTED** | Verificación en runtime de PIDs, topología ($1+2p$), un hilo por worker y memoria base. Requiere Prompt 6. |
+| G7 | Environment / Topology | **NOT STARTED** | Verificación en runtime de PIDs reales asignados a roles lógicos (Driver/Scheduler/Nanny y Workers en LocalCluster), un hilo por worker, OpenBLAS verificado a 1 hilo mediante threadpoolctl y calibración de memoria base. Requiere Prompt 6. |
 | G8 | Pilot & Full Experiment | **NOT STARTED** | Piloto acotado previo (Prompt 7) y campaña experimental completa posterior (Prompt 8). |
 | G9 | Data Audit & Analysis | **NOT STARTED** | Auditoría de datos brutos, cálculo de medianas/IQR y generación determinista de figuras. |
 | G10 | Final Audit | **NOT STARTED** | Auditoría final frente a `SPEC.md` y PDF oficial antes de entrega. |
@@ -669,7 +681,7 @@ Todas las figuras tendrán ejes, unidades, `n`, `b`, workers/threads, topología
    - Generar e inspeccionar el ensamblado/desensamblado de A1 (`gcc -S` o `objdump -d`) para comprobar si el cálculo completo de $O(n^3)$ sobrevive a la optimización `-O3` o si el sumidero exclusivo en `c[0]` lo eliminó.
    - Ejecutar los fixtures de validación de corrección pequeños (identidad, cero, analítico 4x4, borde $n=4, b=3$, y $n=250$ frente a `C_250.csv`).
    - **Prohibido ejecutar benchmarks de rendimiento.**
-4. **Phase 6 (Prompt 6 — Validación de entorno):** Verificación de procesos activos, correspondencia de PIDs, hilos BLAS restringidos a 1 y calibración de `memory_limit` de workers sobre mediciones de memoria ociosa.
+4. **Phase 6 (Prompt 6 — Validación de entorno):** Verificación de procesos activos, mapeo de roles lógicos a PIDs únicos observados (Driver/Scheduler/Nanny en proceso padre, Worker en proceso hijo; 2 PIDs para $p=1$ en LocalCluster Windows), verificación dinámica de OpenBLAS a 1 hilo (`num_threads=1`, `nthreads=1` vía `threadpoolctl`; sin OpenMP cargado), y confirmación de `memory_limit=None` respaldado por el watchdog de memoria de 2.5 GiB sobre mediciones de memoria ociosa.
 5. **Phase 7 (Prompt 7 — Piloto experimental):** Ejecución de un piloto acotado para validar presupuestos operativos (120 s, 2.5 GiB RSS). **Requiere permiso docente únicamente si su matriz de prueba incluye configuraciones locales $p>1$. Un piloto que consista exclusivamente en configuraciones $p=1$ aprobadas NO debe bloquearse únicamente por la ausencia de permiso para $p>1$.**
 6. **Phase 8 (Prompt 8 — Campaña experimental completa):** Ejecución de la batería de pruebas autorizada. **Bajo ninguna circunstancia se sustituirá $p=1$ por una configuración $p>1$ bloqueada pretendiendo que se ha realizado strong scaling. Si $p>1$ sigue bloqueado, strong scaling se reporta con rigor como BLOCKED / NOT COMPLETED.**
 7. **Phases 9–10 (Prompts 9–12 — Análisis, Memoria y Auditoría):** Preservar en todo momento la distinción rigurosa entre estados `BLOCKED`, `NOT STARTED`, `PASSED`, `NOT RUN` y `NOT VERIFIED`.
