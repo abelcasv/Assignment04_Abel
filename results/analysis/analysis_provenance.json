@@ -1,0 +1,55 @@
+{
+  "analysis_schema_version": "1.0",
+  "generated_utc": "2026-11-14T22:12:29.521587+00:00",
+  "source_script": "scripts/analyze_campaign.py",
+  "source_script_sha256": "88E36C023D74ED5D6C4B7F15FF897CFD774DB4657B808684A8E1133AD5B13ABF",
+  "target_campaign_run_id": "campaign_20261114_205134_1d126401af244671b4ca8708818549f3",
+  "raw_measurements_csv": {
+    "path": "results\\raw\\raw_measurements.csv",
+    "sha256": "FA9305CA43BFA47A7B483F22073E292067C535B124D8B305A6134976B065B374"
+  },
+  "campaign_sidecar_json": {
+    "path": "results\\metadata\\sidecar_campaign_20261114_205134_1d126401af244671b4ca8708818549f3.json",
+    "sha256": "00612D239FD9878A0475CBD27DCA0B7FA550C2D8E6A3A308CCED2D09B175B948"
+  },
+  "methodology": {
+    "quantile_method": "linear",
+    "sample_stdev_ddof": 1,
+    "sample_filtering": "status == 'COMPLETED' and is_warmup == False",
+    "excluded_warmup_samples_count": 6,
+    "measured_samples_analyzed": 30,
+    "dimensions_analyzed": [
+      250,
+      500,
+      750,
+      1000,
+      1500,
+      2000
+    ],
+    "contextual_comparison_formula": "CTR = median(T_baseline) / median(T_Dask_p1)",
+    "contextual_comparison_note": "Contextual duration comparison across differing timing boundaries, not speedups.",
+    "reproducibility_note": "The derived artifacts passed independent numerical verification, source inspection, row-level reconciliation, and cryptographic integrity checks. Full offline regeneration was executed and verified in Phase 8.4.2."
+  },
+  "derived_artifacts": {
+    "campaign_measurements_csv": {
+      "path": "results\\analysis\\campaign_measurements.csv",
+      "sha256": "17409AC95A27CF03CBD6A514AA561778FEB0DC69582DF45DCEF57382EB2015E4"
+    },
+    "campaign_summary_statistics_csv": {
+      "path": "results\\analysis\\campaign_summary_statistics.csv",
+      "sha256": "AEE4A50505AB0421DC732C9CFD4885AF286528F648553529EE3DF098100EC4EA"
+    },
+    "contextual_baseline_comparison_csv": {
+      "path": "results\\analysis\\contextual_baseline_comparison.csv",
+      "sha256": "FD0C55C6236921F78087049D901DACB23383C706EA36A03C8FB9E7F51CCEB0E1"
+    },
+    "plot_dask_p1_scaling_png": {
+      "path": "results\\analysis\\plot_dask_p1_scaling.png",
+      "sha256": "F000AAAB091D051A6221B8478EF2DD79F01AD9D335D21FB47519A05B90B42098"
+    },
+    "plot_contextual_comparison_png": {
+      "path": "results\\analysis\\plot_contextual_comparison.png",
+      "sha256": "AA810C44894482E9C763A46771953704BB6D35F1DF48D0B1516A5A1396E73D79"
+    }
+  }
+}

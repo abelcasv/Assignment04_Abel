@@ -1,0 +1,71 @@
+{
+  "metadata_schema_version": "1.0",
+  "run_id": "campaign_20261114_205134_1d126401af244671b4ca8708818549f3",
+  "campaign_name": "Phase 8 Full Single-Worker Campaign",
+  "timestamp_utc": "2026-11-14T20:53:21.462844+00:00",
+  "status": "COMPLETED",
+  "failure_reason": null,
+  "git_commit_sha": "0a9dc8cc00737fd61b98283bebfbafff36961c78",
+  "host_environment": {
+    "cpu": {
+      "processor": "Intel64 Family 6 Model 186 Stepping 3, GenuineIntel",
+      "architecture": "64bit",
+      "machine": "AMD64",
+      "physical_cores": 10,
+      "logical_cores": 12
+    },
+    "memory": {
+      "total_ram_mib": 16009.140625,
+      "available_ram_mib": 3688.8046875
+    },
+    "os": "Windows-11-10.0.26300-SP0"
+  },
+  "software_stack": {
+    "python_version": "3.14.0 (tags/v3.14.0:ebf955d, Oct  7 2025, 10:15:03) [MSC v.1944 64 bit (AMD64)]",
+    "platform_system": "Windows",
+    "platform_release": "11",
+    "platform_version": "10.0.26300",
+    "numpy_version": "2.5.4",
+    "dask_version": "2026.8.0",
+    "distributed_version": "2026.8.0",
+    "psutil_version": "7.2.2"
+  },
+  "threading_environment": {
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1"
+  },
+  "campaign_parameters": {
+    "worker_count": 1,
+    "block_size": 250,
+    "matrix_dimensions": [
+      250,
+      500,
+      750,
+      1000,
+      1500,
+      2000
+    ],
+    "repetitions_per_dimension": 5,
+    "timeout_per_sample_s": 120.0,
+    "aggregate_rss_ceiling_mib": 2560.0,
+    "host_available_ram_floor_mib": 1024.0
+  },
+  "cluster_topology": {
+    "driver_pid": 33560,
+    "scheduler_pid": 33560,
+    "nanny_pids": [
+      21036
+    ],
+    "worker_pids": [
+      21036
+    ],
+    "all_pids": [
+      21036,
+      33560
+    ],
+    "observed_worker_count": 1,
+    "threads_per_worker": 1,
+    "cluster_startup_s": 4.81616909999866
+  }
+}
