@@ -189,8 +189,16 @@ Work only in the phase requested by the student. Do not advance automatically, c
 - Establish effective memory policy: with `memory_limit=None`, Dask per-worker spill/pause is inactive; the external `ResourceWatchdog` (2.5 GiB sampled aggregate RSS ceiling, 1.0 GiB host available RAM floor) enforces operational memory safety.
 
 ### Phase 7 (Prompt 7) — Pilot experiment
-- A pilot requires separate explicit authorization of a bounded execution plan to validate operational budgets (120 s timeout, 2.5 GiB aggregate RSS).
-- **Instructor permission is required ONLY if the pilot matrix includes local $p>1$ configurations. An approved pilot consisting exclusively of $p=1$ configurations is NOT blocked by the absence of $p>1$ permission.**
+- **Stage 1 (Documentary Formalization — Approved):** Pilot matrix is formally defined in `docs/experimental_protocol.md` §10.5 and `SPEC.md` DEC-06:
+  - Method: `dask_block_2d` exclusively (no A1/A3 baselines in pilot).
+  - Matrices: $n \in \{250, 500\}$ with $b=250$.
+  - Workers: $p = 1$ exclusively (single physical host, 1 independent worker child process, 2 OS PIDs total, `threads_per_worker=1`, OpenBLAS `num_threads=1`).
+  - Repetitions: 1 warm-up (`is_warmup=true`, `repetition=0`) and 2 measured repetitions (`is_warmup=false`, `repetition=1, 2`) per size (6 runs total).
+  - Budgets: 120.0 s per-sample timeout, 2,560.0 MiB aggregate RSS ceiling, 1,024.0 MiB host available-RAM floor, 250 ms watchdog interval, Dask `memory_limit=None`.
+  - Global Limit: 15-minute absolute total runtime envelope with automated safe abort (`ABORTED_BUDGET`).
+  - Timing Boundary: Exact $T_{\text{Dask\_e2e}} = t_1 - t_0$ starting before scatter and ending after full-matrix checksum consumption.
+  - Logging: Append-only writes to `results/raw/raw_measurements.csv` (never overwriting prior data); warm-ups flagged and excluded from statistics; companion JSON sidecar in `results/metadata/`.
+- **Stage 2 (Execution — PENDING):** Execution of the pilot requires independent explicit student authorization. Strictly no benchmarks, warm-ups, or performance tasks may be launched prior to Stage 2 approval.
 
 ### Phase 8 (Prompt 8) — Full benchmark campaign
 - Full benchmark campaign requires separate explicit authorization following pilot review.

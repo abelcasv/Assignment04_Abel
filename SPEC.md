@@ -187,7 +187,13 @@ No AI agent may silently alter these decisions without explicit student authoriz
   - Process identities must be tracked using unique operating-system PIDs mapped to logical roles (driver, scheduler, nanny, worker). In the verified Windows in-process `LocalCluster` deployment, the Driver process hosts the Client, Scheduler, and LocalCluster Nanny management instance, while Worker 0 runs in an independent child process (2 distinct OS PIDs observed for $p=1$). Project accounting records actual unique PIDs observed per run rather than imposing an unverified universal formula.
   - When `memory_limit=None`, Dask's internal auto-spill/pause mechanisms are inactive; the project `ResourceWatchdog` (2.5 GiB sampled aggregate RSS ceiling, 1.0 GiB host available-RAM floor) is the specified active operational safeguard (a sampled check, not a hard OS process limit).
   - **Safe Stop Procedure:** On threshold breach, immediately cancel client tasks (`client.cancel`), gracefully close cluster/client within 5 s, forcefully terminate lingering child PIDs (`terminate() / kill()`), and log status as `OUT_OF_MEMORY` or `ABORTED_WATCHDOG`.
-  - The pilot (Phase 7) must empirically determine if the workload operates within these limits; no pilot is launched in this phase.
+  - **Phase 7 Pilot Specification (Stage 1 Formalization Approved):** Formally defined in `docs/experimental_protocol.md` §10.5. Evaluates `dask_block_2d` exclusively across $n \in \{250, 500\}$ with $b=250$, single worker $p=1$ (single host, 2 OS PIDs, 1 thread/worker, OpenBLAS `num_threads=1`), 1 warm-up (`is_warmup=true`) + 2 measured repetitions per size (6 runs total). Enforces:
+    1. **15-Minute Global Session Budget (900.0 s):** Overall monotonic deadline covering input loading, cluster startup, runs, validation, and sidecar; maps to `ABORTED_BUDGET` if reached.
+    2. **120.0 s Per-Sample Timeout:** Enforced on end-to-end distributed execution ($T_{\text{Dask\_e2e}}$); maps to `TIMEOUT` for that sample.
+    3. **30.0 s Startup Timeout:** Governs Client connection and worker registration (`wait_for_workers`); maps to `FAILED` if exceeded while session budget remains.
+    4. **Uninterruptible Synchronous LocalCluster Construction:** `LocalCluster(...)` has no native Dask timeout parameter; overruns are detected post-return and trigger immediate cleanup.
+    5. **Nominal Cleanup Timeout (5.0 s) vs OS Behavior:** Shared budget across Client, Cluster, and child termination (`terminate() / kill()`, excluding driver PID); operational software envelope, not a hard real-time kernel limit.
+    Results logged append-only with warm-ups identified and excluded from statistics. Pilot execution requires independent Stage 2 authorization.
 
 ### DEC-07 — Optional weak scaling
 - **Status:** **Deferred and BLOCKED**.
@@ -308,8 +314,8 @@ Process memory metrics must be clearly distinguished:
 
 Normative schema and formulas: `docs/experimental_protocol.md`, Section 11.
 
-- Raw data stored in `results/raw/raw_measurements.csv` (1 row per sample, append-only, preserving all statuses: `COMPLETED`, `TIMEOUT`, `OUT_OF_MEMORY`, `FAILED`).
-- Campaign metadata stored in companion JSON manifests.
+- Raw data stored in `results/raw/raw_measurements.csv` (1 row per sample, normative 44-column schema, append-only, preserving all statuses: `COMPLETED`, `TIMEOUT`, `OUT_OF_MEMORY`, `ABORTED_WATCHDOG`, `ABORTED_BUDGET`, `NOT_RUN_AFTER_OOM`, `FAILED`).
+- Campaign metadata stored in companion JSON manifests (with unique `run_id` formatted as `pilot_<timestamp>_<uuid.uuid4().hex>`, providing 122 random bits of entropy in a 32-hexadecimal character representation per RFC 4122 §4.4, and recording process hierarchy, stack versions, status, and failure reason).
 - Statistical summaries use Median ($\tilde{T}$) and linear Interquartile Range ($\text{IQR} = Q_3 - Q_1$).
 - Strong scaling speedup: $S_{\text{dist}}(p, n) = \tilde{T}_{\text{dist}}(1, n) / \tilde{T}_{\text{dist}}(p, n)$.
 - Strong scaling efficiency: $E_{\text{dist}}(p, n) = S_{\text{dist}}(p, n) / p$.
@@ -379,7 +385,7 @@ Assignment04/
 | G5 | Implementation (Prompt 4) | **NOT STARTED** | Implementation-only: Dask implementation and runtime adapters; static Makefile review. Prohibited: compilation, benchmarks, pilots. |
 | G6 | Correctness & Build (Prompt 5) | **NOT STARTED** | Authorizes compiling baselines to `build/bin/`, A1 assembly/disassembly check (`gcc -S`), and correctness fixtures. Prohibited: benchmarks. |
 | G7 | Environment (Prompt 6) | **NOT STARTED** | Runtime processes, unique PIDs, 1 thread/worker, OpenBLAS thread limit (verified via threadpoolctl), and idle memory calibration verified. |
-| G8 | Pilot & Benchmark (Prompts 7–8)| **NOT STARTED** | Pilot (Prompt 7; requires permission only if $p>1$ is tested); Full campaign (Prompt 8; never substitute $p=1$ for blocked $p>1$). |
+| G8 | Pilot & Benchmark (Prompts 7–8)| **NOT STARTED** | Pilot specification formalised (§DEC-06, 6 runs total); pilot execution requires independent Stage 2 authorization. Full campaign requires pilot review. |
 | G9 | Data Audit and Analysis | **NOT STARTED** | Raw data audited; derived tables and figures generated deterministically. |
 | G10 | Final Audit | **NOT STARTED** | Code, data, figures, README, and report fully reconciled with specification. |
 

@@ -538,8 +538,8 @@ Los umbrales de memoria se establecen para proteger la estabilidad del host Wind
 Si el watchdog detecta que la suma RSS muestreada alcanza o supera 2.5 GiB, o que la memoria disponible del host cae por debajo de 1.0 GiB:
 1. **Paso 1 (Detección y señal de parada):** Registrar la alerta de memoria con los PIDs y valores exactos en el instante de corte.
 2. **Paso 2 (Cancelación de tareas):** Invocar inmediatamente la cancelación de todos los futuros y tareas en vuelo en el cliente Dask (`client.cancel`).
-3. **Paso 3 (Cierre ordenado):** Ejecutar el cierre formal del cliente y del cluster (`client.close()`, `cluster.close()`) con un tiempo de gracia de hasta 5 segundos.
-4. **Paso 4 (Terminación forzosa):** Si transcurridos 5 segundos algún proceso hijo (nanny o worker) sigue activo, terminarlo forzosamente mediante la API de procesos (`psutil.Process.terminate() / kill()`).
+3. **Paso 3 (Cierre ordenado):** Ejecutar el cierre formal del cliente y del cluster (`client.close()`, `cluster.close()`) compartiendo un presupuesto unificado de hasta 5 segundos (objetivo operacional acotado por un plazo compartido; en Windows la latencia del sistema operativo para limpieza de procesos y sockets puede situar la ventana efectiva observada entre 5,0 y 5,2 s).
+4. **Paso 4 (Terminación forzosa):** Si transcurrido el tiempo restante del presupuesto compartido algún proceso hijo (nanny o worker) sigue activo, terminarlo forzosamente mediante la API de procesos (`psutil.Process.terminate() / kill()`). El proceso driver (`os.getpid()`) queda explícitamente preservado para registrar los resultados y sidecar.
 5. **Paso 5 (Registro de estado):** Marcar la muestra como `OUT_OF_MEMORY` o `ABORTED_WATCHDOG`, dejando `time_e2e_s = NULL` y guardando la telemetría observada hasta la interrupción. Detener las repeticiones restantes de esa configuración (`NOT_RUN_AFTER_OOM`).
 
 > [!NOTE]
@@ -554,13 +554,71 @@ Si el watchdog detecta que la suma RSS muestreada alcanza o supera 2.5 GiB, o qu
 - No se inventan duraciones de ejecución para muestras fallidas ni se borran intentos incompletos.
 - `largest_attempted_n` y `largest_completed_n` se reportan por separado.
 
+### 10.5 Especificación formal y vinculante del piloto de Phase 7 (Prompt 7)
+
+Conforme a la autorización estudiantil independiente de la Etapa 1 (formalización documental) y en cumplimiento estricto de las directrices docentes (`BD_Individual_Assignments_2026_2027.pdf`), `SPEC.md` y `CLAUDE.md`, se establece la especificación completa, acotada y vinculante para el piloto experimental de Phase 7:
+
+#### 1. Matriz de prueba acotada del piloto:
+- **Método evaluado:** `dask_block_2d` exclusivamente (implementación distribuida objeto del estudio en `src/dask_matrix/distributed_engine.py`). No se ejecutan baselines de A1 ni de A3 en el piloto.
+- **Dimensiones de matriz ($n$):** $n \in \{250, 500\}$ exclusivamente.
+  - $n = 250$: $N_b = 1$, 1 tarea de multiplicación de bloque, 0 reducciones intermedias. Validación de latencia base del framework y verificación de sobrecarga elemental.
+  - $n = 500$: $N_b = 2$, 8 tareas de multiplicación de bloque, 4 tareas de reducción en árbol binario. Primera dimensión con particionado 2D y reducción intermedia activa.
+- **Tamaño de bloque ($b$):** $b = 250$ fijo (bloque de referencia del estudio).
+- **Asignación de workers ($p$):** $p = 1$ exclusivamente. Cumplimiento riguroso de DEC-01 (Gate G1); no se inician múltiples workers locales sin permiso docente registrado en `docs/decisions/`.
+- **Topología de procesos y máquinas:** Un único host físico (`localhost` / `127.0.0.1`). Un proceso Driver/Scheduler/Nanny y un único proceso Worker independiente (`LocalCluster(processes=True, n_workers=1, threads_per_worker=1)`), verificando exactamente 2 PIDs de sistema operativo observados en runtime.
+- **Concurrencia de hilos:** `threads_per_worker = 1` a nivel framework Dask; `OpenBLAS num_threads = 1` a nivel backend numérico (mediante herencia de `OPENBLAS_NUM_THREADS=1`, `OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `VECLIB_MAXIMUM_THREADS=1`, `NUMEXPR_NUM_THREADS=1`).
+- **Esquema de repeticiones:**
+  - 1 warm-up completo (`is_warmup=true`, `repetition=0`) por tamaño.
+  - 2 repeticiones medidas (`is_warmup=false`, `repetition=1` y `repetition=2`) por tamaño.
+- **Volumen total de ejecuciones:** Exactamente **6 ejecuciones de muestra en total** ($2 \text{ tamaños} \times 3 \text{ corridas} = 6$).
+
+| Muestra ID | Tamaño $n$ | Bloque $b$ | Tareas mult ($N_b^3$) | Tareas red | Workers $p$ | Repetición | Tipo |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `pilot_250_w0` | 250 | 250 | 1 | 0 | 1 | 0 | Warm-up (`is_warmup=true`) |
+| `pilot_250_r1` | 250 | 250 | 1 | 0 | 1 | 1 | Medida (`is_warmup=false`) |
+| `pilot_250_r2` | 250 | 250 | 1 | 0 | 1 | 2 | Medida (`is_warmup=false`) |
+| `pilot_500_w0` | 500 | 250 | 8 | 4 | 1 | 0 | Warm-up (`is_warmup=true`) |
+| `pilot_500_r1` | 500 | 250 | 8 | 4 | 1 | 1 | Medida (`is_warmup=false`) |
+| `pilot_500_r2` | 500 | 250 | 8 | 4 | 1 | 2 | Medida (`is_warmup=false`) |
+
+#### 2. Presupuestos y límites operacionales del piloto:
+- **Taxonomía formal y distinción de límites temporales:**
+  1. **Presupuesto temporal global de sesión (900.0 s):** Límite monotónico global que cubre todo el ciclo de vida (`session_start + 900.0 s`), incluyendo lectura de matrices, arranque del cluster, 6 ejecuciones, validación y serialización. Su agotamiento cancela la sesión de forma inmediata y marca todas las muestras incompletas como `ABORTED_BUDGET`.
+  2. **Timeout individual por muestra (120.0 s):** Límite estricto aplicado exclusivamente a la multiplicación distribuida end-to-end ($T_{\text{Dask\_e2e}}$). Su superación marca la muestra como `TIMEOUT` y cancela las repeticiones restantes de esa dimensión (`NOT_RUN_TIMEOUT`).
+  3. **Timeout de arranque de cluster (30.0 s nominales o remanente de sesión):** Límite aplicado a la conexión del Client y registro de workers (`wait_for_workers`). Si el arranque falla o agota sus 30 s mientras resta presupuesto global, se clasifica rigurosamente como `FAILED` (no como `ABORTED_BUDGET`).
+  4. **Construcción síncrona no interrumpible de `LocalCluster`:** La llamada a `LocalCluster(...)` en Dask es síncrona y no dispone de parámetro de timeout nativo en la API de Dask. Su ejecución (~0.5–2.0 s) no puede interrumpirse preventivamente a mitad de llamada; el arnés detecta el rebasamiento a posteriori tras su retorno y dispara el cierre inmediato en caso de overrun.
+  5. **Timeout nominal de limpieza ($\le 5.0$ s) frente a latencias del SO:** El desmontaje ordenado (`ClusterManager.close()` y safe-stop del watchdog) comparte un plazo unificado nominal de hasta 5.0 s para cerrar Client, Cluster y terminar procesos hijos (`terminate()` y `kill()`), excluyendo estrictamente el PID del driver. Debido a la latencia de conmutación y terminación de procesos en el SO (Windows), puede observarse un retraso residual de decenas de milisegundos (~5.0 a 5.2 s), constituyendo una envolvente de seguridad software y no una cota dura de tiempo real.
+- **Techo de memoria agregada (Watchdog):** 2.560,0 MiB (2,5 GiB) de suma RSS simultánea sobre los PIDs del cluster.
+- **Suelo de memoria física disponible:** 1.024,0 MiB (1,0 GiB) en el host.
+- **Intervalo del watchdog:** Muestreo cada 250 ms en hilo daemon (`ResourceWatchdog`).
+- **Límite interno Dask:** `memory_limit=None` (sin spill ni pausas internas dependientes de Dask; la salvaguarda primaria es el watchdog externo).
+- **Lectura de matrices desde disco:** La lectura de matrices (`input_load_s`) mediante `np.loadtxt()` es una operación síncrona local no interrumpible; el arnés comprueba el plazo inmediatamente tras su carga y descarta el arranque del cluster si el presupuesto expiró.
+- **Límite temporal global efectivo y corte seguro:** El arnés del piloto calcula un tiempo límite de sesión monotónico (`deadline = session_start + 900.0 s`). El intervalo de muestreo del watchdog (250 ms) introduce una latencia máxima de detección operacional de hasta 250 ms ante tareas de cómputo bloqueadas. Si se alcanza dicho plazo en cualquier punto, se detiene la secuencia de inmediato, se cancelan futuros en vuelo, se cierra el cluster de forma segura y las muestras no ejecutadas se marcan formalmente como `ABORTED_BUDGET`. El presupuesto representa una envolvente de seguridad operacional acotada y cooperativa en software, no una cota de tiempo real externa o forzosa a nivel de kernel de SO.
+
+#### 3. Frontera temporal exacta ($T_{\text{Dask\_e2e}}$):
+- **Inicio del timer ($t_0$):** Inmediatamente antes del particionado en bloques 2D de $A$ y $B$ y su dispersión (*scatter*) al cluster.
+- **Fase medida ($t_0 \to t_1$):** Particionado 2D, envío de tareas $N_b^3$, envío de árbol de reducción, espera de completitud, recolección (*gather*) de bloques $C_{ij}$ al driver, ensamblado contiguo en memoria local de $C$, y cálculo del checksum completo `checksum = float(np.sum(C, dtype=np.float64))`.
+- **Parada del timer ($t_1$):** Inmediatamente tras la computación del checksum escalar. $T_{\text{Dask\_e2e}} = t_1 - t_0$ medido mediante `time.perf_counter()`.
+- **Fases excluidas del timer de muestra (pero incluidas en el presupuesto global de 900 s):**
+  - Fuera del timer (previo): Arranque del cluster Dask (`cluster_startup_s`) y lectura de ficheros CSV desde disco a arrays NumPy en el driver (`input_load_s`).
+  - Fuera del timer (posterior):
+    - Para $n=250$: Verificación numérica elemento a elemento contra el fixture analítico (`data/validation/reference/C_250.csv`) con tolerancias `atol=1e-9` y `rtol=1e-12`.
+    - Para $n=500$: Verificación de finitud (ausencia de NaN/Inf) y comprobación de determinismo de checksums entre repeticiones medidas 1 y 2. Al no existir un fichero congelado `C_500.csv` en el repositorio, esta verificación se reporta con rigor como un **control parcial de invariantes** conforme a §9.3, no como una prueba matemática completa contra ground-truth analítico.
+    - Registro de telemetría de red/memoria y serialización append-only a disco.
+
+#### 4. Política estricta de registro y metadatos:
+- **Adición no destructiva (*append-only*):** Las observaciones se agregan exclusivamente al final de `results/raw/raw_measurements.csv` sin sobrescribir ni truncar datos previos.
+- **Identificación de warm-ups:** Cada warm-up se registra explícitamente con `is_warmup=true` y `repetition=0`, quedando inequívocamente aislado y excluido de los resúmenes estadísticos posteriores (medianas e IQRs de tiempo).
+- **Trazabilidad de metadatos:** Se genera un fichero companion JSON en `results/metadata/sidecar_pilot_<timestamp>.json` con identificador único de ejecución `run_id = f"pilot_{timestamp}_{uuid.uuid4().hex}"` (UUIDv4 aportando 122 bits aleatorios de entropía en representación de 32 caracteres hexadecimales, conforme a RFC 4122 §4.4) registrando la jerarquía de PIDs, hardware, SO, versiones del stack, límites del piloto y estado final (`status`, `failure_reason`). Si ocurre un fallo en arranque o ejecución, el sidecar captura los PIDs disponibles y el estado de error; su generación se ejecuta durante el desmontaje final fuera de los timers de cómputo.
+- **Preservación de fallos:** Cualquier interrupción (por timeout, RSS, suelo de RAM o presupuesto de 15 min) se guarda con su estado formal (`TIMEOUT`, `OUT_OF_MEMORY`, `ABORTED_WATCHDOG`, `ABORTED_BUDGET`), conservando los logs para su auditoría técnica.
+
 ---
 
 ## 11. Raw data, metadatos, análisis y figuras
 
 ### 11.1 Una fila por muestra
 
-Esquema mínimo propuesto para `results/raw/raw_measurements.csv`:
+Esquema normativo y vinculante de 44 columnas para `results/raw/raw_measurements.csv` (implementado en `MeasurementRecord`):
 
 | Campo | Descripción |
 |---|---|
@@ -668,7 +726,7 @@ Todas las figuras tendrán ejes, unidades, `n`, `b`, workers/threads, topología
 | G5 | Implementation | **NOT STARTED** | Implementación de Dask y adaptadores runtime; revisión estática sin compilación. Requiere Prompt 4. |
 | G6 | Correctness & Build | **NOT STARTED** | Compilación de baselines a `build/bin/`, inspección de ensamblado de A1 (`gcc -S`), y fixtures de corrección. Requiere Prompt 5. |
 | G7 | Environment / Topology | **NOT STARTED** | Verificación en runtime de PIDs reales asignados a roles lógicos (Driver/Scheduler/Nanny y Workers en LocalCluster), un hilo por worker, OpenBLAS verificado a 1 hilo mediante threadpoolctl y calibración de memoria base. Requiere Prompt 6. |
-| G8 | Pilot & Full Experiment | **NOT STARTED** | Piloto acotado previo (Prompt 7) y campaña experimental completa posterior (Prompt 8). |
+| G8 | Pilot & Full Experiment | **NOT STARTED** | Especificación formal del piloto de 6 muestras formalizada (§10.5); ejecución de Phase 7 pendiente de autorización independiente. |
 | G9 | Data Audit & Analysis | **NOT STARTED** | Auditoría de datos brutos, cálculo de medianas/IQR y generación determinista de figuras. |
 | G10 | Final Audit | **NOT STARTED** | Auditoría final frente a `SPEC.md` y PDF oficial antes de entrega. |
 
@@ -682,7 +740,7 @@ Todas las figuras tendrán ejes, unidades, `n`, `b`, workers/threads, topología
    - Ejecutar los fixtures de validación de corrección pequeños (identidad, cero, analítico 4x4, borde $n=4, b=3$, y $n=250$ frente a `C_250.csv`).
    - **Prohibido ejecutar benchmarks de rendimiento.**
 4. **Phase 6 (Prompt 6 — Validación de entorno):** Verificación de procesos activos, mapeo de roles lógicos a PIDs únicos observados (Driver/Scheduler/Nanny en proceso padre, Worker en proceso hijo; 2 PIDs para $p=1$ en LocalCluster Windows), verificación dinámica de OpenBLAS a 1 hilo (`num_threads=1`, `nthreads=1` vía `threadpoolctl`; sin OpenMP cargado), y confirmación de `memory_limit=None` respaldado por el watchdog de memoria de 2.5 GiB sobre mediciones de memoria ociosa.
-5. **Phase 7 (Prompt 7 — Piloto experimental):** Ejecución de un piloto acotado para validar presupuestos operativos (120 s, 2.5 GiB RSS). **Requiere permiso docente únicamente si su matriz de prueba incluye configuraciones locales $p>1$. Un piloto que consista exclusivamente en configuraciones $p=1$ aprobadas NO debe bloquearse únicamente por la ausencia de permiso para $p>1$.**
+5. **Phase 7 (Prompt 7 — Piloto experimental):** Ejecución del piloto acotado bajo la especificación formal vinculante (§10.5): 6 muestras exclusivas de `dask_block_2d` ($n \in \{250, 500\}$, $p=1$, $b=250$, 1 warm-up + 2 repeticiones, timeout individual 120 s, 2.5 GiB RSS, tope global 15 min con interrupción segura). Su ejecución requiere autorización estudiantil independiente (Etapa 2).
 6. **Phase 8 (Prompt 8 — Campaña experimental completa):** Ejecución de la batería de pruebas autorizada. **Bajo ninguna circunstancia se sustituirá $p=1$ por una configuración $p>1$ bloqueada pretendiendo que se ha realizado strong scaling. Si $p>1$ sigue bloqueado, strong scaling se reporta con rigor como BLOCKED / NOT COMPLETED.**
 7. **Phases 9–10 (Prompts 9–12 — Análisis, Memoria y Auditoría):** Preservar en todo momento la distinción rigurosa entre estados `BLOCKED`, `NOT STARTED`, `PASSED`, `NOT RUN` y `NOT VERIFIED`.
 
