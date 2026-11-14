@@ -1,0 +1,25 @@
+# Set default behavior to normalize text files to LF on checkout and commit
+* text=auto eol=lf
+
+# Explicit text files
+*.csv text eol=lf
+*.json text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+
+# Explicit binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.exe binary
+*.bin binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.pkl binary
