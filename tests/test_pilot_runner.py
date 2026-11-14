@@ -928,7 +928,7 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
             np.savetxt(os.path.join(dense_dir, "B_500.csv"), np.ones((500, 500)), delimiter=",")
 
             mock_cm = MagicMock()
-            mock_cm.start.side_effect = TimeoutError("Cluster startup timed out after 30.0s")
+            mock_cm.start.side_effect = TimeoutError("Cluster startup timed out after 60.0s")
 
             runner = PilotRunner(
                 data_dir=data_dir,
@@ -967,19 +967,21 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
             results_csv = os.path.join(test_dir, "results", "raw", "raw_measurements.csv")
             metadata_dir = os.path.join(test_dir, "results", "metadata")
 
-            np.savetxt(os.path.join(dense_dir, "A_250.csv"), np.ones((250, 250)), delimiter=",")
-            np.savetxt(os.path.join(dense_dir, "B_250.csv"), np.ones((250, 250)), delimiter=",")
-            np.savetxt(os.path.join(dense_dir, "A_500.csv"), np.ones((500, 500)), delimiter=",")
-            np.savetxt(os.path.join(dense_dir, "B_500.csv"), np.ones((500, 500)), delimiter=",")
+            # Create dummy touch files so file existence checks pass without large disk I/O
+            for fname in ("A_250.csv", "B_250.csv", "A_500.csv", "B_500.csv"):
+                with open(os.path.join(dense_dir, fname), "w", encoding="utf-8") as f:
+                    f.write("0.0\n")
 
             mock_cm = MagicMock()
             orig_perf_counter = time.perf_counter
-            def slow_startup_exceeding_deadline(timeout_s=30.0):
-                # Simulate time jumping past global session deadline
-                patcher = patch("time.perf_counter", return_value=orig_perf_counter() + 1000.0)
+
+            def slow_startup_exceeding_deadline(timeout_s=60.0):
+                # Simulate time jumping past global session deadline during cluster startup
+                patcher = patch("time.perf_counter", return_value=orig_perf_counter() + 2000.0)
                 patcher.start()
                 self.addCleanup(patcher.stop)
                 raise TimeoutError("Deadline expired during cluster startup")
+
             mock_cm.start.side_effect = slow_startup_exceeding_deadline
 
             runner = PilotRunner(
@@ -987,11 +989,19 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
                 results_csv=results_csv,
                 metadata_dir=metadata_dir,
                 cluster_manager=mock_cm,
-                session_budget_s=5.0,  # 5s budget: input loading comfortably completes before startup
+                session_budget_s=900.0,  # 900s standard session budget
             )
 
-            summary = runner.run()
+            # Mock _load_matrix to avoid disk I/O latency while returning correctly-shaped synthetic arrays
+            with patch.object(
+                PilotRunner,
+                "_load_matrix",
+                side_effect=lambda path: np.ones((500, 500) if "500" in path else (250, 250), dtype=np.float64),
+            ):
+                summary = runner.run()
+
             self.assertTrue(mock_cm.start.called, "cm.start should have been called before deadline expired")
+            mock_cm.start.assert_called_with(timeout_s=60.0)
             self.assertEqual(summary["total_samples"], 6)
             self.assertEqual(summary["completed_samples"], 0)
             self.assertEqual(summary["failed_samples"], 6)

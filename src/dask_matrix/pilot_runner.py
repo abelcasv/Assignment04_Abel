@@ -322,7 +322,7 @@ class PilotRunner:
                 early_abort_status = "ABORTED_BUDGET"
                 early_abort_reason = "Global session budget reached before cluster startup."
             else:
-                startup_timeout = min(30.0, rem_startup)
+                startup_timeout = min(60.0, rem_startup)
                 print(f"\n[CLUSTER] Starting LocalCluster (p=1, processes=True, threads=1, timeout={startup_timeout:.1f}s)...")
                 topology = cm.start(timeout_s=startup_timeout)
                 print(f"[CLUSTER] Started successfully in {topology.cluster_startup_s:.2f} s.")

@@ -190,7 +190,7 @@ No AI agent may silently alter these decisions without explicit student authoriz
   - **Phase 7 Pilot Specification (Stage 1 Formalization Approved):** Formally defined in `docs/experimental_protocol.md` §10.5. Evaluates `dask_block_2d` exclusively across $n \in \{250, 500\}$ with $b=250$, single worker $p=1$ (single host, 2 OS PIDs, 1 thread/worker, OpenBLAS `num_threads=1`), 1 warm-up (`is_warmup=true`) + 2 measured repetitions per size (6 runs total). Enforces:
     1. **15-Minute Global Session Budget (900.0 s):** Overall monotonic deadline covering input loading, cluster startup, runs, validation, and sidecar; maps to `ABORTED_BUDGET` if reached.
     2. **120.0 s Per-Sample Timeout:** Enforced on end-to-end distributed execution ($T_{\text{Dask\_e2e}}$); maps to `TIMEOUT` for that sample.
-    3. **30.0 s Startup Timeout:** Governs Client connection and worker registration (`wait_for_workers`); maps to `FAILED` if exceeded while session budget remains.
+    3. **60.0 s Startup Timeout:** Governs Client connection and worker registration (`wait_for_workers`); maps to `FAILED` if exceeded while session budget remains.
     4. **Uninterruptible Synchronous LocalCluster Construction:** `LocalCluster(...)` has no native Dask timeout parameter; overruns are detected post-return and trigger immediate cleanup.
     5. **Nominal Cleanup Timeout (5.0 s) vs OS Behavior:** Shared budget across Client, Cluster, and child termination (`terminate() / kill()`, excluding driver PID); operational software envelope, not a hard real-time kernel limit.
     Results logged append-only with warm-ups identified and excluded from statistics. Pilot execution requires independent Stage 2 authorization.

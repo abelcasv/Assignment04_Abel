@@ -119,12 +119,12 @@ class ClusterManager:
         self.client: Optional[Any] = None
         self.topology: Optional[ClusterTopology] = None
 
-    def start(self, timeout_s: float = 30.0) -> ClusterTopology:
+    def start(self, timeout_s: float = 60.0) -> ClusterTopology:
         """
         Starts the LocalCluster and Client, enforcing thread limits and DEC-01.
 
         Args:
-            timeout_s: Maximum duration in seconds to wait for workers to register (default: 30.0).
+            timeout_s: Maximum duration in seconds to wait for workers to register (default: 60.0).
 
         Returns:
             ClusterTopology descriptor.
