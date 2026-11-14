@@ -1,0 +1,51 @@
+# ==============================================================================
+# Assignment 4 — Git Ignore Rules
+# ==============================================================================
+
+# External read-only baseline repositories
+/external_repos/
+
+# Local course reference PDF (proprietary course materials)
+/docs/reference/BD_Individual_Assignments_2026_2027.pdf
+
+# Private student prompts and task sequences
+PROMPTS.md
+*prompt*.txt
+*prompts*.txt
+
+# Obsolete / superseded archival drafts (consolidated into canonical governance)
+CLAUDE_UPDATED.md
+SPEC_UPDATED.md
+docs/Assignment04_Experimental_Protocol_Final.md
+
+# Build artifacts, binaries, and object files
+build/bin/
+*.exe
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+
+# Generated runtime scratch directories
+build/a1_runtime/
+build/a3_runtime/
+
+# Python virtual environments, bytecode, and caches
+.venv/
+env/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE, OS, and editor metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
