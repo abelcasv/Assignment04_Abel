@@ -1,7 +1,7 @@
 # Assignment 4 Implementation Architecture (`src/`)
 
-**Assignment 4:** Distributed Matrix Multiplication  
-**Course:** BIG DATA · Grado en Ciencia e Ingeniería de Datos · ULPGC (2026–2027)  
+**Assignment 4:** Distributed Matrix Multiplication<br>
+**Course:** BIG DATA · Grado en Ciencia e Ingeniería de Datos · ULPGC (2026–2027)
 
 ---
 
