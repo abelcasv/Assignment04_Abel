@@ -27,6 +27,9 @@ build/bin/
 *.dylib
 *.dll
 
+# Benchmark dense input matrices (Option B: deterministically generated on-demand; see data/README.md)
+/data/dense/
+
 # Generated runtime scratch directories
 build/a1_runtime/
 build/a3_runtime/

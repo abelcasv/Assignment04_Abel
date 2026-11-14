@@ -116,6 +116,8 @@ Se utilizarán los inputs ya congelados en `data/dense/`, identificados en `data
 
 **No se volverán a generar estos archivos ni se modificarán.** Antes de cada campaña se verificarán sus hashes mediante el verificador existente; dicha verificación requerirá autorización de la fase correspondiente.
 
+**Política de almacenamiento y reconstrucción (Opción B):** De conformidad con la decisión de almacenamiento autorizada, las matrices densas generadas en `data/dense/` (~310 MB) se excluyen de Git mediante `.gitignore` (`/data/dense/`) para evitar el engrosamiento del repositorio y advertencias de GitHub por archivos superiores a 50 MB. Su generador determinista (`scripts/generate_dataset.py`) y el manifiesto criptográfico (`data/SHA256SUMS.txt`) están versionados en Git. En un clon limpio, las matrices se materializan y certifican mediante `python scripts/generate_dataset.py` y `python scripts/verify_dataset.py data/SHA256SUMS.txt` (ver guía operativa en `data/README.md`). En un espacio de trabajo con datos ya materializados, las matrices permanecen estrictamente inmutables y no deben regenerarse ni sobrescribirse.
+
 | Uso | Dimensiones | Métodos |
 |---|---|---|
 | Auxiliar exclusivo de A1 | `n=100` | A1 solamente; no entra en comparaciones de tres vías. |
