@@ -67,6 +67,8 @@ class DistributedBlockMatmul:
         b_matrix: np.ndarray,
         repetition_id: int = 0,
         timeout_s: float = 120.0,
+        watchdog: Optional[Any] = None,
+        global_deadline_s: Optional[float] = None,
     ) -> DaskExecutionResult:
         """
         Executes distributed 2D block matrix multiplication within the strict timing boundary.
@@ -76,6 +78,8 @@ class DistributedBlockMatmul:
             b_matrix: Dense square numpy array B (float64).
             repetition_id: Repetition counter used to guarantee unique task keys.
             timeout_s: Maximum execution duration before timing out (default: 120 s).
+            watchdog: Optional ResourceWatchdog instance for immediate breach detection.
+            global_deadline_s: Optional monotonic timestamp for session budget limit.
 
         Returns:
             DaskExecutionResult containing timing, checksum, and status.
@@ -94,6 +98,34 @@ class DistributedBlockMatmul:
         t0 = time.perf_counter()
 
         try:
+            # Check early watchdog or deadline breach
+            if watchdog is not None and watchdog.breach_detected:
+                elapsed_abort = time.perf_counter() - t0
+                return DaskExecutionResult(
+                    status=watchdog.breach_type or "FAILED",
+                    n=n,
+                    block_size=self.block_size,
+                    nb=nb,
+                    time_e2e_s=None,
+                    checksum=None,
+                    c_matrix=None,
+                    error_reason=watchdog.breach_reason,
+                    elapsed_until_abort_s=elapsed_abort,
+                )
+            if global_deadline_s is not None and time.perf_counter() >= global_deadline_s:
+                elapsed_abort = time.perf_counter() - t0
+                return DaskExecutionResult(
+                    status="ABORTED_BUDGET",
+                    n=n,
+                    block_size=self.block_size,
+                    nb=nb,
+                    time_e2e_s=None,
+                    checksum=None,
+                    c_matrix=None,
+                    error_reason=f"Global session deadline reached ({time.perf_counter():.2f} >= {global_deadline_s:.2f}).",
+                    elapsed_until_abort_s=elapsed_abort,
+                )
+
             # 1. 2D Block Partitioning
             t_part_start = time.perf_counter()
             a_blocks = partition_matrix_2d(a_matrix, self.block_size)
@@ -164,26 +196,54 @@ class DistributedBlockMatmul:
                     all_final_futures.append(red_future)
             t_graph_end = time.perf_counter()
 
-            # 5. Wait for computation with timeout
-            # Calculate remaining budget from the 120s timeout
+            # 5. Wait for computation with timeout and budget limit
             elapsed_so_far = time.perf_counter() - t0
-            remaining_timeout = max(0.1, timeout_s - elapsed_so_far)
+            sample_rem = timeout_s - elapsed_so_far
+            if global_deadline_s is not None:
+                session_rem = global_deadline_s - time.perf_counter()
+                remaining_timeout = max(0.1, min(sample_rem, session_rem))
+            else:
+                remaining_timeout = max(0.1, sample_rem)
 
             done, not_done = wait(all_final_futures, timeout=remaining_timeout)
 
             if not_done:
-                # Timeout occurred!
+                # Timeout or budget limit occurred!
                 self.client.cancel(not_done)
                 elapsed_abort = time.perf_counter() - t0
+                if watchdog is not None and watchdog.breach_detected:
+                    status = watchdog.breach_type or "FAILED"
+                    reason = watchdog.breach_reason or "Watchdog breach during computation."
+                elif global_deadline_s is not None and time.perf_counter() >= global_deadline_s:
+                    status = "ABORTED_BUDGET"
+                    reason = f"Global session deadline reached ({time.perf_counter():.2f} >= {global_deadline_s:.2f})."
+                else:
+                    status = "TIMEOUT"
+                    reason = f"Operation timed out after {elapsed_abort:.2f} s (> {timeout_s:.1f} s limit)."
                 return DaskExecutionResult(
-                    status="TIMEOUT",
+                    status=status,
                     n=n,
                     block_size=self.block_size,
                     nb=nb,
                     time_e2e_s=None,
                     checksum=None,
                     c_matrix=None,
-                    error_reason=f"Operation timed out after {elapsed_abort:.2f} s (> {timeout_s:.1f} s limit).",
+                    error_reason=reason,
+                    elapsed_until_abort_s=elapsed_abort,
+                )
+
+            # Check watchdog again after wait
+            if watchdog is not None and watchdog.breach_detected:
+                elapsed_abort = time.perf_counter() - t0
+                return DaskExecutionResult(
+                    status=watchdog.breach_type or "FAILED",
+                    n=n,
+                    block_size=self.block_size,
+                    nb=nb,
+                    time_e2e_s=None,
+                    checksum=None,
+                    c_matrix=None,
+                    error_reason=watchdog.breach_reason,
                     elapsed_until_abort_s=elapsed_abort,
                 )
 
@@ -213,6 +273,46 @@ class DistributedBlockMatmul:
             # -------------------------------------------------------------
             t1 = time.perf_counter()
             time_e2e_s = t1 - t0
+
+            # Post-checksum watchdog and timeout checks
+            if watchdog is not None and watchdog.breach_detected:
+                return DaskExecutionResult(
+                    status=watchdog.breach_type or "FAILED",
+                    n=n,
+                    block_size=self.block_size,
+                    nb=nb,
+                    time_e2e_s=None,
+                    checksum=None,
+                    c_matrix=None,
+                    error_reason=watchdog.breach_reason,
+                    elapsed_until_abort_s=time_e2e_s,
+                )
+
+            if global_deadline_s is not None and t1 >= global_deadline_s:
+                return DaskExecutionResult(
+                    status="ABORTED_BUDGET",
+                    n=n,
+                    block_size=self.block_size,
+                    nb=nb,
+                    time_e2e_s=None,
+                    checksum=None,
+                    c_matrix=None,
+                    error_reason=f"Global session deadline reached ({t1:.2f} >= {global_deadline_s:.2f}).",
+                    elapsed_until_abort_s=time_e2e_s,
+                )
+
+            if time_e2e_s >= timeout_s:
+                return DaskExecutionResult(
+                    status="TIMEOUT",
+                    n=n,
+                    block_size=self.block_size,
+                    nb=nb,
+                    time_e2e_s=None,
+                    checksum=None,
+                    c_matrix=None,
+                    error_reason=f"Operation exceeded timeout after {time_e2e_s:.2f} s (> {timeout_s:.1f} s limit).",
+                    elapsed_until_abort_s=time_e2e_s,
+                )
 
             # Estimate object nbytes tracked by Dask
             object_nbytes = None
@@ -245,28 +345,45 @@ class DistributedBlockMatmul:
 
         except DaskTimeoutError:
             elapsed_abort = time.perf_counter() - t0
+            if watchdog is not None and watchdog.breach_detected:
+                status = watchdog.breach_type or "FAILED"
+                reason = watchdog.breach_reason or "Watchdog breach during computation."
+            elif global_deadline_s is not None and time.perf_counter() >= global_deadline_s:
+                status = "ABORTED_BUDGET"
+                reason = f"Global session deadline reached ({time.perf_counter():.2f} >= {global_deadline_s:.2f})."
+            else:
+                status = "TIMEOUT"
+                reason = f"Operation timed out after {elapsed_abort:.2f} s."
             return DaskExecutionResult(
-                status="TIMEOUT",
+                status=status,
                 n=n,
                 block_size=self.block_size,
                 nb=nb,
                 time_e2e_s=None,
                 checksum=None,
                 c_matrix=None,
-                error_reason=f"Operation timed out after {elapsed_abort:.2f} s.",
+                error_reason=reason,
                 elapsed_until_abort_s=elapsed_abort,
             )
 
         except Exception as e:
             elapsed_abort = time.perf_counter() - t0
+            status = "FAILED"
+            reason = str(e)
+            if watchdog is not None and watchdog.breach_detected:
+                status = watchdog.breach_type or "FAILED"
+                reason = watchdog.breach_reason or str(e)
+            elif global_deadline_s is not None and time.perf_counter() >= global_deadline_s:
+                status = "ABORTED_BUDGET"
+                reason = f"Global session deadline reached ({time.perf_counter():.2f} >= {global_deadline_s:.2f})."
             return DaskExecutionResult(
-                status="FAILED",
+                status=status,
                 n=n,
                 block_size=self.block_size,
                 nb=nb,
                 time_e2e_s=None,
                 checksum=None,
                 c_matrix=None,
-                error_reason=str(e),
+                error_reason=reason,
                 elapsed_until_abort_s=elapsed_abort,
             )

@@ -14,6 +14,12 @@ import os
 import sys
 import uuid
 from typing import List, Optional
+
+# Ensure repository root is in sys.path when executed directly
+REPO_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if REPO_ROOT_DIR not in sys.path:
+    sys.path.insert(0, REPO_ROOT_DIR)
+
 import numpy as np
 
 from src.dask_matrix.cluster_manager import (
@@ -22,6 +28,7 @@ from src.dask_matrix.cluster_manager import (
 )
 from src.dask_matrix.distributed_engine import DistributedBlockMatmul
 from src.dask_matrix.partitioning import compute_grid_dimensions
+from src.dask_matrix.pilot_runner import PilotRunner, PILOT_PLAN
 from src.dask_matrix.results_logger import MeasurementRecord, RawResultsLogger
 from src.dask_matrix.sidecar import generate_campaign_sidecar
 from src.dask_matrix.validation import MatrixValidator
@@ -81,6 +88,11 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Run correctness verification on analytical fixtures (4x4) and n=250 reference.",
     )
+    parser.add_argument(
+        "--pilot",
+        action="store_true",
+        help="Execute the bounded Phase 7 Pilot experiment (fixed immutable matrix: n in {250, 500}, b=250, p=1, 6 runs).",
+    )
     return parser.parse_args()
 
 
@@ -128,6 +140,33 @@ def validate_configuration(n: int, b: int, p: int) -> bool:
 def main() -> int:
     args = parse_arguments()
 
+    if args.pilot:
+        print("[PILOT MODE] Bounded Phase 7 Pilot selected.")
+        print("[PILOT MODE] Enforcing fixed pilot matrix: n in {250, 500}, b=250, p=1, 6 runs.")
+        # Guard against external dimension/worker args attempting to alter pilot
+        if args.n not in (250, 500):
+            print(f"[PILOT WARNING] Argument --n={args.n} ignored. Pilot strictly evaluates n in {{250, 500}}.")
+        if args.workers != 1:
+            sys.stderr.write(f"[PILOT ERROR] Pilot strictly requires p=1. Got --workers={args.workers}.\n")
+            return 1
+        if args.block_size != 250:
+            print(f"[PILOT WARNING] Argument --block-size={args.block_size} ignored. Pilot strictly uses b=250.")
+
+        if args.check_config:
+            print("[PILOT CONFIG CHECK] Validating static pilot requirements...")
+            validate_configuration(250, 250, 1)
+            validate_configuration(500, 250, 1)
+            print(f"[PILOT CONFIG CHECK] Plan contains {len(PILOT_PLAN)} immutable executions.")
+            print("[SUCCESS] Pilot configuration check passed. Exiting (--check-config).")
+            return 0
+
+        # Execute Pilot
+        runner = PilotRunner()
+        summary = runner.run()
+        if summary.get("failed_samples", 0) > 0 and summary.get("completed_samples", 0) == 0:
+            return 1
+        return 0
+
     try:
         validate_configuration(args.n, args.block_size, args.workers)
     except Exception as e:
@@ -140,6 +179,7 @@ def main() -> int:
 
     print("\n[NOTE] Execution of matrix calculations or worker clusters belongs to Phase 5–8.")
     print("Use --check-config for static verification in Phase 4.")
+    print("Use --pilot to execute the bounded Phase 7 Pilot.")
     return 0
 
 

@@ -95,6 +95,8 @@ def generate_campaign_sidecar(
     repetitions: int,
     cluster_topology: Optional[Dict[str, Any]] = None,
     output_dir: str = METADATA_DIR,
+    status: Optional[str] = None,
+    failure_reason: Optional[str] = None,
 ) -> str:
     """
     Generates and saves the structured campaign sidecar JSON document.
@@ -108,6 +110,8 @@ def generate_campaign_sidecar(
         repetitions: Measured repetitions per configuration.
         cluster_topology: Optional cluster process hierarchy dictionary.
         output_dir: Directory where the sidecar file is written.
+        status: Optional campaign completion status (e.g. COMPLETED, FAILED, ABORTED_BUDGET).
+        failure_reason: Optional failure description if campaign did not complete normally.
 
     Returns:
         Absolute filepath of the saved JSON sidecar.
@@ -120,6 +124,8 @@ def generate_campaign_sidecar(
         "run_id": run_id,
         "campaign_name": campaign_name,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "status": status or "COMPLETED",
+        "failure_reason": failure_reason,
         "git_commit_sha": get_git_commit_sha(),
         "host_environment": {
             "cpu": get_cpu_info(),
