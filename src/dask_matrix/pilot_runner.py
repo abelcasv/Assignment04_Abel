@@ -53,6 +53,15 @@ from src.dask_matrix.results_logger import (
     RawResultsLogger,
     DEFAULT_RESULTS_FILE,
 )
+from src.dask_matrix.input_verifier import (
+    InputIntegrityError,
+    load_sha256_manifest,
+    compute_file_sha256,
+    compute_bytes_sha256,
+    read_and_verify_matrix_bytes,
+    parse_matrix_bytes,
+    verify_and_load_matrix,
+)
 from src.dask_matrix.sidecar import (
     generate_campaign_sidecar,
     get_git_commit_sha,
@@ -159,29 +168,11 @@ PILOT_PLAN: Tuple[PilotSampleSpec, ...] = (
 )
 
 
-def load_sha256_checksums(sums_path: str = DEFAULT_SUMS_FILE) -> Dict[str, str]:
-    """Loads recorded SHA-256 checksums from data/SHA256SUMS.txt."""
-    sums: Dict[str, str] = {}
-    if os.path.isfile(sums_path):
-        with open(sums_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                parts = line.split(maxsplit=1)
-                if len(parts) == 2:
-                    h, rel = parts[0], parts[1].replace("\\", "/").strip()
-                    sums[rel] = h
-    return sums
-
-
-def compute_file_sha256(filepath: str) -> str:
-    """Computes SHA-256 digest of a local file."""
-    h = hashlib.sha256()
-    with open(filepath, "rb") as f:
-        while chunk := f.read(65536):
-            h.update(chunk)
-    return h.hexdigest()
+def load_sha256_checksums(
+    sums_path: str = DEFAULT_SUMS_FILE,
+) -> Dict[str, str]:
+    """Loads recorded SHA-256 checksums from manifest with default path backward compatibility."""
+    return load_sha256_manifest(sums_path)
 
 
 class PilotRunner:
@@ -224,12 +215,26 @@ class PilotRunner:
         except Exception:
             return "unknown"
 
-    def _load_matrix(self, filepath: str) -> np.ndarray:
+    def _load_matrix(self, filepath: str, raw_bytes: Optional[bytes] = None) -> np.ndarray:
         """Loads a dense matrix CSV into a C-contiguous float64 array."""
+        if raw_bytes is not None:
+            return parse_matrix_bytes(raw_bytes)
         if not os.path.isfile(filepath):
             raise FileNotFoundError(f"Required matrix file not found: {filepath}")
         mat = np.loadtxt(filepath, delimiter=",", dtype=np.float64)
         return np.ascontiguousarray(mat, dtype=np.float64)
+
+    def _verify_and_load_matrix(
+        self, filepath: str, rel_path: str, manifest: Dict[str, str]
+    ) -> Tuple[np.ndarray, str]:
+        """
+        Verifies input matrix against manifest and parses directly from verified byte snapshot.
+        Eliminates TOCTOU race conditions and propagates any parsing/loading exceptions directly
+        without retrying from disk.
+        """
+        raw_bytes, verified_sha = read_and_verify_matrix_bytes(filepath, rel_path, manifest)
+        mat = self._load_matrix(filepath, raw_bytes=raw_bytes)
+        return mat, verified_sha
 
     def run(self) -> Dict[str, Any]:
         """
@@ -288,7 +293,7 @@ class PilotRunner:
 
         try:
             # 2. Check input files and hashes within session budget
-            recorded_sums = load_sha256_checksums(self.sums_file)
+            recorded_sums = load_sha256_manifest(self.sums_file)
 
             # 3. Pre-load input matrices (synchronous local disk reads; outside sample timer, inside session budget)
             for n in (250, 500):
@@ -296,15 +301,11 @@ class PilotRunner:
                 a_path = os.path.join(self.dense_dir, f"A_{n}.csv")
                 b_path = os.path.join(self.dense_dir, f"B_{n}.csv")
 
-                a_mat = self._load_matrix(a_path)
-                b_mat = self._load_matrix(b_path)
-                load_duration = time.perf_counter() - t_load_start
-
-                # Resolve input SHA-256
                 rel_a = f"dense/A_{n}.csv"
                 rel_b = f"dense/B_{n}.csv"
-                sha_a = recorded_sums.get(rel_a) or compute_file_sha256(a_path)
-                sha_b = recorded_sums.get(rel_b) or compute_file_sha256(b_path)
+                a_mat, sha_a = self._verify_and_load_matrix(a_path, rel_a, recorded_sums)
+                b_mat, sha_b = self._verify_and_load_matrix(b_path, rel_b, recorded_sums)
+                load_duration = time.perf_counter() - t_load_start
 
                 inputs_cache[n] = (a_mat, b_mat, sha_a, sha_b, load_duration)
                 print(f"[INPUTS LOADED] n={n}: A={a_mat.shape}, B={b_mat.shape} (load time: {load_duration:.3f} s)")

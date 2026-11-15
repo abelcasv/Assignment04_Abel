@@ -35,6 +35,15 @@ from src.dask_matrix.results_logger import (
     RawResultsLogger,
     MeasurementRecord,
 )
+from src.dask_matrix.input_verifier import (
+    InputIntegrityError,
+    load_sha256_manifest,
+    compute_file_sha256,
+    compute_bytes_sha256,
+    read_and_verify_matrix_bytes,
+    parse_matrix_bytes,
+    verify_and_load_matrix,
+)
 
 __all__ = [
     "BlockSlice",
@@ -54,4 +63,11 @@ __all__ = [
     "ValidationResult",
     "RawResultsLogger",
     "MeasurementRecord",
+    "InputIntegrityError",
+    "load_sha256_manifest",
+    "compute_file_sha256",
+    "compute_bytes_sha256",
+    "read_and_verify_matrix_bytes",
+    "parse_matrix_bytes",
+    "verify_and_load_matrix",
 ]

@@ -25,10 +25,12 @@ Validates all 20 required specifications for CampaignRunner and build_campaign_p
 """
 
 from datetime import datetime, timezone
+import hashlib
 import os
 import shutil
 import tempfile
 import time
+from typing import Optional
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -57,7 +59,7 @@ from src.dask_matrix.results_logger import RawResultsLogger
 import re
 
 
-def mock_load_matrix(filepath: str) -> np.ndarray:
+def mock_load_matrix(filepath: str, raw_bytes: Optional[bytes] = None) -> np.ndarray:
     """Returns a synthetic array matching the dimension encoded in the filename."""
     m = re.search(r'([A-Za-z]+_)?(\d+)\.csv', filepath)
     if m:
@@ -182,15 +184,22 @@ class TestMockedCampaignExecution(unittest.TestCase):
         os.makedirs(self.metadata_dir, exist_ok=True)
         os.makedirs(os.path.dirname(self.results_csv), exist_ok=True)
 
-        # Create dummy input files so file existence checks pass
-        for n in CAMPAIGN_SIZES:
-            with open(os.path.join(self.dense_dir, f"A_{n}.csv"), "w") as f:
-                f.write("0.0\n")
-            with open(os.path.join(self.dense_dir, f"B_{n}.csv"), "w") as f:
-                f.write("0.0\n")
+        # Create dummy input files so file existence checks pass and write valid SHA256SUMS.txt
+        sums_file = os.path.join(self.data_dir, "SHA256SUMS.txt")
+        with open(sums_file, "w", encoding="utf-8") as sf:
+            for n in CAMPAIGN_SIZES:
+                for prefix in ("A", "B"):
+                    fname = f"{prefix}_{n}.csv"
+                    p = os.path.join(self.dense_dir, fname)
+                    with open(p, "wb") as f:
+                        f.write(b"0.0\n")
+                    h = hashlib.sha256(b"0.0\n").hexdigest()
+                    sf.write(f"{h}  dense/{fname}\n")
 
-        with open(os.path.join(self.ref_dir, "C_250.csv"), "w") as f:
-            f.write("0.0\n")
+            with open(os.path.join(self.ref_dir, "C_250.csv"), "wb") as f:
+                f.write(b"0.0\n")
+            h_ref = hashlib.sha256(b"0.0\n").hexdigest()
+            sf.write(f"{h_ref}  validation/reference/C_250.csv\n")
 
     def tearDown(self):
         shutil.rmtree(self.test_dir, ignore_errors=True)

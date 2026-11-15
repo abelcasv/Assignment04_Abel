@@ -16,6 +16,7 @@ Tests:
 """
 
 from dataclasses import FrozenInstanceError
+import hashlib
 import json
 import os
 import shutil
@@ -95,6 +96,19 @@ class TestPilotRunnerExecution(unittest.TestCase):
         np.savetxt(os.path.join(self.dense_dir, "B_500.csv"), np.ones((500, 500)), delimiter=",")
         # Reference C_250 = A_250 @ B_250 = 250.0 everywhere
         np.savetxt(os.path.join(self.val_dir, "C_250.csv"), np.full((250, 250), 250.0), delimiter=",")
+
+        # Generate valid SHA256SUMS.txt for test fixtures
+        sums_file = os.path.join(self.data_dir, "SHA256SUMS.txt")
+        with open(sums_file, "w", encoding="utf-8") as f:
+            for fname in ("A_250.csv", "B_250.csv", "A_500.csv", "B_500.csv"):
+                p = os.path.join(self.dense_dir, fname)
+                with open(p, "rb") as bf:
+                    h = hashlib.sha256(bf.read()).hexdigest()
+                f.write(f"{h}  dense/{fname}\n")
+            c_ref_p = os.path.join(self.val_dir, "C_250.csv")
+            with open(c_ref_p, "rb") as bf:
+                h = hashlib.sha256(bf.read()).hexdigest()
+            f.write(f"{h}  validation/reference/C_250.csv\n")
 
         # Mock ClusterManager
         self.mock_cm = MagicMock()
@@ -927,6 +941,14 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
             np.savetxt(os.path.join(dense_dir, "A_500.csv"), np.ones((500, 500)), delimiter=",")
             np.savetxt(os.path.join(dense_dir, "B_500.csv"), np.ones((500, 500)), delimiter=",")
 
+            sums_file = os.path.join(data_dir, "SHA256SUMS.txt")
+            with open(sums_file, "w", encoding="utf-8") as f:
+                for fname in ("A_250.csv", "B_250.csv", "A_500.csv", "B_500.csv"):
+                    p = os.path.join(dense_dir, fname)
+                    with open(p, "rb") as bf:
+                        h = hashlib.sha256(bf.read()).hexdigest()
+                    f.write(f"{h}  dense/{fname}\n")
+
             mock_cm = MagicMock()
             mock_cm.start.side_effect = TimeoutError("Cluster startup timed out after 60.0s")
 
@@ -968,9 +990,14 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
             metadata_dir = os.path.join(test_dir, "results", "metadata")
 
             # Create dummy touch files so file existence checks pass without large disk I/O
-            for fname in ("A_250.csv", "B_250.csv", "A_500.csv", "B_500.csv"):
-                with open(os.path.join(dense_dir, fname), "w", encoding="utf-8") as f:
-                    f.write("0.0\n")
+            sums_file = os.path.join(data_dir, "SHA256SUMS.txt")
+            with open(sums_file, "w", encoding="utf-8") as sf:
+                for fname in ("A_250.csv", "B_250.csv", "A_500.csv", "B_500.csv"):
+                    p = os.path.join(dense_dir, fname)
+                    with open(p, "wb") as f:
+                        f.write(b"0.0\n")
+                    h = hashlib.sha256(b"0.0\n").hexdigest()
+                    sf.write(f"{h}  dense/{fname}\n")
 
             mock_cm = MagicMock()
             orig_perf_counter = time.perf_counter
@@ -996,7 +1023,7 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
             with patch.object(
                 PilotRunner,
                 "_load_matrix",
-                side_effect=lambda path: np.ones((500, 500) if "500" in path else (250, 250), dtype=np.float64),
+                side_effect=lambda path, raw_bytes=None: np.ones((500, 500) if "500" in path else (250, 250), dtype=np.float64),
             ):
                 summary = runner.run()
 
@@ -1029,7 +1056,11 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
             results_csv = os.path.join(test_dir, "results", "raw", "raw_measurements.csv")
             metadata_dir = os.path.join(test_dir, "results", "metadata")
 
-            # Intentionally do NOT create A_250.csv (missing input)
+            # Intentionally do NOT create A_250.csv (missing input), but create manifest with declared entry
+            sums_file = os.path.join(data_dir, "SHA256SUMS.txt")
+            with open(sums_file, "w", encoding="utf-8") as sf:
+                for fname in ("A_250.csv", "B_250.csv", "A_500.csv", "B_500.csv"):
+                    sf.write(f"{'0'*64}  dense/{fname}\n")
             mock_cm = MagicMock()
 
             runner = PilotRunner(
