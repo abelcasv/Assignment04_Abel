@@ -112,6 +112,7 @@ class TestPilotRunnerExecution(unittest.TestCase):
 
         # Mock ClusterManager
         self.mock_cm = MagicMock()
+        self.mock_cm.worker_count = 1
         self.mock_cm.start.return_value = ClusterTopology(
             worker_count_requested=1,
             worker_count_observed=1,
@@ -950,6 +951,7 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
                     f.write(f"{h}  dense/{fname}\n")
 
             mock_cm = MagicMock()
+            mock_cm.worker_count = 1
             mock_cm.start.side_effect = TimeoutError("Cluster startup timed out after 60.0s")
 
             runner = PilotRunner(
@@ -1000,6 +1002,7 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
                     sf.write(f"{h}  dense/{fname}\n")
 
             mock_cm = MagicMock()
+            mock_cm.worker_count = 1
             orig_perf_counter = time.perf_counter
 
             def slow_startup_exceeding_deadline(timeout_s=60.0):
@@ -1062,6 +1065,7 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
                 for fname in ("A_250.csv", "B_250.csv", "A_500.csv", "B_500.csv"):
                     sf.write(f"{'0'*64}  dense/{fname}\n")
             mock_cm = MagicMock()
+            mock_cm.worker_count = 1
 
             runner = PilotRunner(
                 data_dir=data_dir,

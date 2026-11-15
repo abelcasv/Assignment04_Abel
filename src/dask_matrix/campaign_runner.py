@@ -38,6 +38,7 @@ Reuses existing validated Phase 7 infrastructure:
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import numbers
 import os
 import random
 import sys
@@ -49,6 +50,7 @@ import numpy as np
 from src.dask_matrix.cluster_manager import (
     ClusterManager,
     ClusterTopology,
+    validate_injected_cluster_manager,
     verify_multiworker_permission,
 )
 from src.dask_matrix.distributed_engine import (
@@ -323,6 +325,8 @@ class CampaignRunner:
         self.val_dir = os.path.join(self.data_dir, "validation")
         self.sums_file = os.path.join(self.data_dir, "SHA256SUMS.txt")
 
+        validate_injected_cluster_manager(self.cluster_manager, expected_worker_count=CAMPAIGN_WORKER_COUNT)
+
         self.plan = plan or CAMPAIGN_PLAN
 
     def _get_framework_version(self) -> str:
@@ -392,6 +396,8 @@ class CampaignRunner:
             session_budget_s=self.session_budget_s,
         )
 
+        validate_injected_cluster_manager(self.cluster_manager, expected_worker_count=CAMPAIGN_WORKER_COUNT)
+
         cm = self.cluster_manager
         owns_cluster = False
         if cm is None:
@@ -456,6 +462,11 @@ class CampaignRunner:
                 effective_startup_timeout = min(self.startup_timeout_s, rem_startup)
                 print(f"\n[CLUSTER] Starting LocalCluster (p=1, processes=True, threads=1, timeout={effective_startup_timeout:.1f}s)...")
                 topology = cm.start(timeout_s=effective_startup_timeout)
+                if hasattr(topology, "worker_count_observed") and topology.worker_count_observed != CAMPAIGN_WORKER_COUNT:
+                    raise ValueError(
+                        f"Cluster startup failed worker count verification: expected {CAMPAIGN_WORKER_COUNT} "
+                        f"observed workers, got {topology.worker_count_observed}."
+                    )
                 print(f"[CLUSTER] Started successfully in {topology.cluster_startup_s:.2f} s.")
                 print(f"[CLUSTER] Observed PIDs: Driver={topology.driver_pid}, Scheduler={topology.scheduler_pid}, "
                       f"Nannies={topology.nanny_pids}, Workers={topology.worker_pids} (Total unique: {len(topology.all_pids)})")

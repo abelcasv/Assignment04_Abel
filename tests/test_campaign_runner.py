@@ -206,6 +206,7 @@ class TestMockedCampaignExecution(unittest.TestCase):
 
     def _create_mock_cluster_manager(self):
         mock_cm = MagicMock()
+        mock_cm.worker_count = 1
         mock_topology = ClusterTopology(
             worker_count_requested=1,
             worker_count_observed=1,
