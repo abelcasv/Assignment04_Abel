@@ -10,6 +10,7 @@ correctness checks, and benchmark campaigns:
 """
 
 import argparse
+import numbers
 import os
 import sys
 import uuid
@@ -46,7 +47,7 @@ DENSE_DIR = os.path.join(DATA_DIR, "dense")
 VALIDATION_DIR = os.path.join(DATA_DIR, "validation")
 
 
-def parse_arguments() -> argparse.Namespace:
+def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Assignment 4: Distributed 2D Block Matrix Multiplication (Dask Distributed)",
     )
@@ -68,7 +69,7 @@ def parse_arguments() -> argparse.Namespace:
         "-p",
         type=int,
         default=1,
-        help="Number of worker processes p (default: 1). p > 1 requires DEC-01 permission.",
+        help="Number of worker processes p (default: 1). Must be a positive integer (p >= 1). Only p=1 is currently authorized; p > 1 requires written instructor permission under DEC-01.",
     )
     parser.add_argument(
         "--repetitions",
@@ -103,7 +104,7 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Execute the full Phase 8 single-worker campaign (n in {250, 500, 750, 1000, 1500, 2000}, b=250, p=1, 36 runs).",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def load_matrix_csv(filepath: str) -> np.ndarray:
@@ -126,29 +127,35 @@ def validate_configuration(n: int, b: int, p: int) -> bool:
         True if configuration is valid.
 
     Raises:
-        ValueError: If n <= 0 or b <= 0.
+        TypeError: If n, b, or p are boolean or not integral numbers.
+        ValueError: If n <= 0, b <= 0, or p < 1.
         PermissionError: If p > 1 and DEC-01 permission is missing.
     """
+    if isinstance(n, bool) or not isinstance(n, numbers.Integral):
+        raise TypeError(f"Matrix dimension n must be an integer, got {type(n).__name__}.")
     if n <= 0:
         raise ValueError(f"Matrix dimension n must be positive, got {n}.")
+
+    if isinstance(b, bool) or not isinstance(b, numbers.Integral):
+        raise TypeError(f"Block size b must be an integer, got {type(b).__name__}.")
     if b <= 0:
         raise ValueError(f"Block size b must be positive, got {b}.")
+
+    # Central validation of Gate G1 / DEC-01 permission and process count
+    verify_multiworker_permission(p)
 
     nb = compute_grid_dimensions(n, b)
     print(f"[CONFIG CHECK] Problem dimension: {n} x {n}")
     print(f"[CONFIG CHECK] Block size: {b} x {b}")
     print(f"[CONFIG CHECK] Grid dimension: {nb} x {nb} blocks ({nb**2} blocks total)")
     print(f"[CONFIG CHECK] Multiplication tasks: {nb**3}, Reduction additions: {nb**2 * (nb - 1)}")
-
-    # Strict check of Gate G1 / DEC-01 permission
-    verify_multiworker_permission(p)
     print(f"[CONFIG CHECK] Worker count: p={p} (Permission verified).")
 
     return True
 
 
-def main() -> int:
-    args = parse_arguments()
+def main(argv: Optional[List[str]] = None) -> int:
+    args = parse_arguments(argv)
 
     if args.pilot and args.campaign:
         sys.stderr.write("[ERROR] Cannot specify both --pilot and --campaign simultaneously.\n")
