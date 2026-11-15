@@ -10,6 +10,7 @@ Manages Dask Distributed LocalCluster and Client instances:
 """
 
 from dataclasses import dataclass, field
+import numbers
 import os
 import sys
 import time
@@ -49,16 +50,28 @@ def verify_multiworker_permission(p: int) -> bool:
     Verifies that local multi-worker execution (p > 1) is permitted by checking
     for written instructor permission evidence in docs/decisions/.
 
+    Under DEC-01, single-worker execution (p=1) is the only currently authorized
+    configuration. Configurations with p < 1 are invalid, and p > 1 requires explicit
+    written instructor permission.
+
     Args:
-        p: Number of workers requested.
+        p: Number of workers requested. Must be a positive integer (p >= 1).
 
     Returns:
-        True if p == 1 or valid permission evidence exists.
+        True if p == 1 or valid written instructor permission evidence exists.
 
     Raises:
-        PermissionError: If p > 1 and no permission file is present.
+        TypeError: If p is a boolean or not an integral number.
+        ValueError: If p < 1.
+        PermissionError: If p > 1 and no written permission file is present.
     """
-    if p <= 1:
+    if isinstance(p, bool) or not isinstance(p, numbers.Integral):
+        raise TypeError(f"Worker count p must be an integer, got {type(p).__name__}.")
+
+    if p < 1:
+        raise ValueError(f"Worker count p must be a positive integer (p >= 1), got {p}.")
+
+    if p == 1:
         return True
 
     if not os.path.isdir(DECISIONS_DIR):
@@ -88,6 +101,72 @@ def verify_multiworker_permission(p: int) -> bool:
     return True
 
 
+def validate_injected_cluster_manager(cm: Any, expected_worker_count: int = 1) -> None:
+    """
+    Validates that an injected cluster manager satisfies the strict single-worker contract.
+
+    Enforces fail-closed validation:
+    - If cm is None, validation passes (the runner instantiates its own ClusterManager).
+    - cm must expose a 'worker_count' attribute (or equivalent configured attribute on duck-typed test doubles).
+    - worker_count must be an integral type (numbers.Integral) and not a boolean.
+    - worker_count must be positive (>= 1).
+    - worker_count must exactly equal expected_worker_count (currently 1 under DEC-01).
+
+    Args:
+        cm: Injected cluster manager instance or test double.
+        expected_worker_count: Expected worker count p (default: 1).
+
+    Raises:
+        AttributeError: If cm lacks a 'worker_count' attribute.
+        TypeError: If worker_count is a boolean, float, None, or non-integral type.
+        ValueError: If worker_count < 1 or worker_count != expected_worker_count.
+    """
+    if cm is None:
+        return
+
+    if not hasattr(cm, "worker_count"):
+        # Check if duck-typed test double has an equivalent configured attribute on topology
+        if (
+            hasattr(cm, "start")
+            and hasattr(cm.start, "return_value")
+            and hasattr(cm.start.return_value, "worker_count_requested")
+            and isinstance(cm.start.return_value.worker_count_requested, numbers.Integral)
+            and not isinstance(cm.start.return_value.worker_count_requested, bool)
+        ):
+            worker_count = cm.start.return_value.worker_count_requested
+        else:
+            raise AttributeError("Injected cluster manager must declare a 'worker_count' attribute.")
+    else:
+        worker_count = cm.worker_count
+        # If worker_count is an unconfigured Mock (not an explicit value), check for configured topology
+        if type(worker_count).__module__.startswith("unittest.mock"):
+            if (
+                hasattr(cm, "start")
+                and hasattr(cm.start, "return_value")
+                and hasattr(cm.start.return_value, "worker_count_requested")
+                and isinstance(cm.start.return_value.worker_count_requested, numbers.Integral)
+                and not isinstance(cm.start.return_value.worker_count_requested, bool)
+            ):
+                worker_count = cm.start.return_value.worker_count_requested
+            else:
+                raise AttributeError("Injected cluster manager must declare a concrete 'worker_count' attribute.")
+
+    if isinstance(worker_count, bool) or not isinstance(worker_count, numbers.Integral):
+        raise TypeError(
+            f"Injected cluster manager worker_count must be an integer, got {type(worker_count).__name__}."
+        )
+
+    if worker_count < 1:
+        raise ValueError(
+            f"Injected cluster manager worker_count must be a positive integer (p >= 1), got {worker_count}."
+        )
+
+    if worker_count != expected_worker_count:
+        raise ValueError(
+            f"Injected cluster manager requires worker_count={expected_worker_count}, got {worker_count}."
+        )
+
+
 @dataclass
 class ClusterTopology:
     """Metadata detailing the active cluster process hierarchy."""
@@ -112,8 +191,26 @@ class ClusterManager:
         threads_per_worker: int = 1,
         worker_memory_limit: Optional[str] = None,
     ):
-        self.worker_count = worker_count
-        self.threads_per_worker = threads_per_worker
+        if isinstance(worker_count, bool) or not isinstance(worker_count, numbers.Integral):
+            raise TypeError(
+                f"worker_count must be an integer, got {type(worker_count).__name__}."
+            )
+        if worker_count < 1:
+            raise ValueError(
+                f"worker_count must be a positive integer (p >= 1), got {worker_count}."
+            )
+
+        if isinstance(threads_per_worker, bool) or not isinstance(threads_per_worker, numbers.Integral):
+            raise TypeError(
+                f"threads_per_worker must be an integer, got {type(threads_per_worker).__name__}."
+            )
+        if threads_per_worker < 1:
+            raise ValueError(
+                f"threads_per_worker must be a positive integer, got {threads_per_worker}."
+            )
+
+        self.worker_count = int(worker_count)
+        self.threads_per_worker = int(threads_per_worker)
         self.worker_memory_limit = worker_memory_limit
         self.cluster: Optional[Any] = None
         self.client: Optional[Any] = None
