@@ -51,10 +51,17 @@ class TestValidateConfiguration(unittest.TestCase):
 
     def test_multiworker_blocked_without_permission(self):
         """p > 1 raises PermissionError when DEC-01 permission is absent."""
-        for p in [2, 4, 8]:
-            with self.assertRaises(PermissionError) as ctx:
-                validate_configuration(250, 250, p)
-            self.assertIn("DEC-01", str(ctx.exception))
+        with patch("src.dask_matrix.cluster_manager.DECISIONS_DIR", "__nonexistent_decisions_dir__"):
+            for p in [2, 4, 8]:
+                with self.assertRaises(PermissionError) as ctx:
+                    validate_configuration(250, 250, p)
+                self.assertIn("DEC-01", str(ctx.exception))
+
+    def test_multiworker_authorized_with_permission_record(self):
+        """p > 1 succeeds when DEC-01 authorization evidence is present."""
+        with patch("sys.stdout", new_callable=StringIO):
+            for p in [2, 4, 8, 10]:
+                self.assertTrue(validate_configuration(1000, 250, p))
 
 
 class TestCliCheckConfig(unittest.TestCase):
@@ -80,12 +87,60 @@ class TestCliCheckConfig(unittest.TestCase):
             self.assertEqual(ret, 1)
             self.assertIn("positive integer", err.getvalue())
 
-    def test_check_config_multiworker_fails_dec01(self):
-        """--check-config -p 2 returns exit code 1 due to DEC-01 permission error."""
-        with patch("sys.stdout", new_callable=StringIO), patch("sys.stderr", new_callable=StringIO) as err:
+    def test_check_config_multiworker_fails_dec01_when_permission_absent(self):
+        """--check-config -p 2 returns exit code 1 when DEC-01 permission file is absent."""
+        with patch("src.dask_matrix.cluster_manager.DECISIONS_DIR", "__nonexistent_decisions_dir__"), \
+             patch("sys.stdout", new_callable=StringIO), \
+             patch("sys.stderr", new_callable=StringIO) as err:
             ret = cli_main(["--check-config", "--n", "250", "-b", "250", "-p", "2"])
             self.assertEqual(ret, 1)
             self.assertIn("DEC-01", err.getvalue())
+
+    def test_check_config_multiworker_succeeds_with_dec01_permission(self):
+        """--check-config -p 2 and --campaign --check-config -p 2 succeed when DEC-01 is authorized."""
+        with patch("sys.stdout", new_callable=StringIO):
+            self.assertEqual(cli_main(["--check-config", "--n", "1000", "-b", "250", "-p", "2"]), 0)
+            self.assertEqual(cli_main(["--campaign", "--check-config", "-p", "2"]), 0)
+
+    def test_check_config_invalid_repetitions_or_timeout_fails(self):
+        """Invalid --repetitions or --timeout values fail validation cleanly."""
+        for argv in [
+            ["--check-config", "--repetitions", "0"],
+            ["--check-config", "--repetitions", "-3"],
+            ["--check-config", "--timeout", "0"],
+            ["--check-config", "--timeout", "-5.0"],
+            ["--check-config", "--timeout", "nan"],
+            ["--check-config", "--timeout", "inf"],
+        ]:
+            with patch("sys.stdout", new_callable=StringIO), patch("sys.stderr", new_callable=StringIO) as err:
+                ret = cli_main(argv)
+                self.assertEqual(ret, 1, f"Expected exit 1 for {argv}")
+                self.assertIn("CONFIGURATION ERROR", err.getvalue())
+
+    def test_validate_fixtures_flag_executes_checks(self):
+        """--validate-fixtures invokes run_correctness_checks and reflects pass/fail exit code."""
+        with patch("scripts.verify_correctness.run_correctness_checks", return_value=True) as mock_ok:
+            self.assertEqual(cli_main(["--validate-fixtures"]), 0)
+            mock_ok.assert_called_once()
+
+        with patch("scripts.verify_correctness.run_correctness_checks", return_value=False):
+            self.assertEqual(cli_main(["--validate-fixtures"]), 1)
+
+        with patch("sys.stderr", new_callable=StringIO):
+            self.assertEqual(cli_main(["--validate-fixtures", "--campaign"]), 1)
+
+    def test_campaign_and_pilot_partial_failures_return_nonzero(self):
+        """--campaign and --pilot exit 1 whenever failed_samples > 0, even if completed_samples > 0."""
+        partial_summary = {"completed_samples": 3, "failed_samples": 3}
+        with patch("src.cli.CampaignRunner") as mock_camp:
+            mock_camp.return_value.run.return_value = partial_summary
+            with patch("sys.stdout", new_callable=StringIO):
+                self.assertEqual(cli_main(["--campaign"]), 1)
+
+        with patch("src.cli.PilotRunner") as mock_pilot:
+            mock_pilot.return_value.run.return_value = partial_summary
+            with patch("sys.stdout", new_callable=StringIO):
+                self.assertEqual(cli_main(["--pilot"]), 1)
 
 
 class TestRunnerClusterManagerInjection(unittest.TestCase):
@@ -385,6 +440,39 @@ class TestRunnerSideEffectOrdering(unittest.TestCase):
                 with open(summary["sidecar_path"], "r", encoding="utf-8") as f:
                     sidecar = json.load(f)
                 self.assertIn("failed worker count verification", sidecar["failure_reason"])
+
+    def test_runners_fail_closed_on_none_or_incomplete_topology(self):
+        """Both CampaignRunner and PilotRunner reject None or incomplete topology from cm.start()."""
+        import tempfile
+        import json
+        class IncompleteTopology:
+            worker_count_requested = 1
+
+        for runner_cls, expected_failed in [(CampaignRunner, 36), (PilotRunner, 6)]:
+            mod = "campaign_runner" if runner_cls is CampaignRunner else "pilot_runner"
+            for bad_topo in (None, IncompleteTopology()):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    res_csv = os.path.join(tmp_dir, "raw.csv")
+                    meta_dir = os.path.join(tmp_dir, "meta")
+                    os.makedirs(meta_dir, exist_ok=True)
+                    mock_cm = MagicMock()
+                    mock_cm.worker_count = 1
+                    mock_cm.start.return_value = bad_topo
+
+                    runner = runner_cls(results_csv=res_csv, metadata_dir=meta_dir, cluster_manager=mock_cm)
+                    with patch(f"src.dask_matrix.{mod}.load_sha256_manifest", return_value={}), \
+                         patch.object(runner_cls, "_verify_and_load_matrix", return_value=(np.ones((250, 250)), "digest")), \
+                         patch(f"src.dask_matrix.{mod}.DistributedBlockMatmul") as mock_engine, \
+                         patch(f"src.dask_matrix.{mod}.ResourceWatchdog") as mock_wd:
+                        summary = runner.run()
+                        self.assertEqual(summary["completed_samples"], 0)
+                        self.assertEqual(summary["failed_samples"], expected_failed)
+                        mock_engine.assert_not_called()
+                        mock_wd.assert_not_called()
+                        with open(summary["sidecar_path"], "r", encoding="utf-8") as f:
+                            sidecar = json.load(f)
+                        self.assertEqual(sidecar["cluster_topology"].get("startup_status"), "FAILED")
+                        self.assertNotIn("observed_worker_count", sidecar["cluster_topology"])
 
 
 if __name__ == "__main__":

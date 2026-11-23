@@ -18,6 +18,7 @@ import numpy as np
 
 from src.dask_matrix.campaign_runner import CampaignRunner, CampaignSampleSpec
 from src.dask_matrix.cluster_manager import ClusterTopology
+from src.dask_matrix.distributed_engine import DaskExecutionResult
 from src.dask_matrix.input_verifier import (
     InputIntegrityError,
     load_sha256_manifest,
@@ -213,6 +214,7 @@ class TestRunnerInputIntegrityEnforcement(unittest.TestCase):
 
     def _create_mock_cluster_manager(self):
         mock_cm = MagicMock()
+        mock_cm.worker_count = 1
         mock_cm.start.return_value = ClusterTopology(
             worker_count_requested=1,
             worker_count_observed=1,
@@ -354,17 +356,29 @@ class TestRunnerInputIntegrityEnforcement(unittest.TestCase):
 
         with patch("src.dask_matrix.pilot_runner.DistributedBlockMatmul") as mock_engine_cls:
             mock_engine = MagicMock()
-            mock_engine.execute.return_value = MagicMock(
-                status="COMPLETED",
-                time_e2e_s=0.05,
-                checksum=123.456,
-                c_matrix=np.ones((250, 250)),
-                object_nbytes=1000,
-                elapsed_until_abort_s=0.05,
-            )
+
+            def fake_multiply(a_matrix, b_matrix, repetition_id=0, timeout_s=120.0, watchdog=None, global_deadline_s=None):
+                n_val = a_matrix.shape[0]
+                return DaskExecutionResult(
+                    status="COMPLETED",
+                    n=n_val,
+                    block_size=250,
+                    nb=max(1, n_val // 250),
+                    time_e2e_s=0.05,
+                    checksum=123.456,
+                    c_matrix=np.ones((n_val, n_val), dtype=np.float64),
+                    object_nbytes=1000,
+                    elapsed_until_abort_s=None,
+                )
+
+            mock_engine.multiply.side_effect = fake_multiply
             mock_engine_cls.return_value = mock_engine
 
-            with patch.object(runner, "_load_matrix", return_value=np.ones((250, 250))):
+            with patch.object(
+                runner,
+                "_load_matrix",
+                side_effect=lambda p, raw_bytes=None: np.ones((500, 500) if "500" in p else (250, 250), dtype=np.float64),
+            ):
                 summary = runner.run()
 
         # Check recorded CSV

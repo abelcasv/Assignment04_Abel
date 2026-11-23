@@ -247,6 +247,60 @@ class TestVerifyProvenance(unittest.TestCase):
         self.assertEqual(res.returncode, 0)
         self.assertIn("[SUCCESS] All provenance artifacts verified", res.stdout)
 
+    def test_verify_manifest_rejects_malformed_and_incomplete_entries(self):
+        repo_root = self.tmp_path / "repo"
+        repo_root.mkdir()
+        valid_file = repo_root / "ok.csv"
+        h_ok = self._write_lf_text(valid_file, "a\n1\n")
+
+        # Partial source_script without source_script_sha256 + derived item missing sha256
+        manifest = {
+            "source_script": "scripts/analyze.py",
+            "raw_measurements_csv": {"path": "ok.csv", "sha256": h_ok},
+            "derived_artifacts": {
+                "broken_item": {"path": "ok.csv"}
+            },
+        }
+        manifest_file = repo_root / "bad_manifest.json"
+        manifest_file.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        success, records, errors = verify_provenance_manifest(manifest_file, repo_root)
+        self.assertFalse(success)
+        self.assertGreaterEqual(len(errors), 2)
+        self.assertTrue(any(r["status"] == "MALFORMED_ENTRY" for r in records))
+
+        # Non-string raw_path should fail closed via resolve_artifact_path
+        resolved, err = resolve_artifact_path(None, repo_root)
+        self.assertIsNone(resolved)
+        self.assertIn("Invalid artifact path", err)
+
+    def test_verify_manifest_checks_strong_scaling_inputs(self):
+        repo_root = self.tmp_path / "repo"
+        repo_root.mkdir()
+        ss_man = repo_root / "results" / "metadata" / "strong_scaling_manifest.json"
+        ss_diag = repo_root / "results" / "metadata" / "strong_scaling_diagnostics.json"
+        h_man = self._write_lf_text(ss_man, '{"runs": []}\n')
+        h_diag = self._write_lf_text(ss_diag, '{"n": 1000}\n')
+
+        manifest = {
+            "strong_scaling_manifest_json": {
+                "path": "results/metadata/strong_scaling_manifest.json",
+                "sha256": h_man,
+            },
+            "strong_scaling_diagnostics_json": {
+                "path": "results/metadata/strong_scaling_diagnostics.json",
+                "sha256": h_diag,
+            },
+        }
+        manifest_file = repo_root / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        success, records, errors = verify_provenance_manifest(manifest_file, repo_root)
+        self.assertTrue(success)
+        self.assertEqual(len(errors), 0)
+        self.assertEqual(len(records), 2)
+        self.assertEqual({r["name"] for r in records}, {"strong_scaling_manifest_json", "strong_scaling_diagnostics_json"})
+
 
 if __name__ == "__main__":
     unittest.main()

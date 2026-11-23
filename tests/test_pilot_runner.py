@@ -277,6 +277,116 @@ class TestPilotRunnerExecution(unittest.TestCase):
         for s in statuses[2:]:
             self.assertEqual(s, "NOT_RUN_AFTER_OOM")
 
+    @patch("src.dask_matrix.pilot_runner.DistributedBlockMatmul")
+    def test_pilot_validation_failures_record_failed_status(self, mock_engine_cls):
+        """PilotRunner must record FAILED (never COMPLETED) for None c_matrix, C_250 mismatch, NaN, and checksum divergence."""
+        mock_engine = MagicMock()
+        mock_engine_cls.return_value = mock_engine
+
+        def mock_multiply(a_matrix, b_matrix, repetition_id=0, timeout_s=120.0, watchdog=None, global_deadline_s=None):
+            n = a_matrix.shape[0]
+            if n == 250 and repetition_id == 0:
+                return DaskExecutionResult(
+                    status="COMPLETED", n=n, block_size=250, nb=1, time_e2e_s=0.05,
+                    checksum=1.0, c_matrix=None, object_nbytes=1024,
+                )
+            elif n == 250:
+                bad_c = np.full((n, n), 999.0, dtype=np.float64)
+                return DaskExecutionResult(
+                    status="COMPLETED", n=n, block_size=250, nb=1, time_e2e_s=0.05,
+                    checksum=float(np.sum(bad_c)), c_matrix=bad_c, object_nbytes=1024,
+                )
+            elif n == 500 and repetition_id == 0:
+                nan_c = np.ones((n, n), dtype=np.float64)
+                nan_c[0, 0] = np.nan
+                return DaskExecutionResult(
+                    status="COMPLETED", n=n, block_size=250, nb=2, time_e2e_s=0.05,
+                    checksum=float("nan"), c_matrix=nan_c, object_nbytes=1024,
+                )
+            elif n == 500 and repetition_id == 1:
+                c1 = np.full((n, n), 500.0, dtype=np.float64)
+                return DaskExecutionResult(
+                    status="COMPLETED", n=n, block_size=250, nb=2, time_e2e_s=0.05,
+                    checksum=float(np.sum(c1)), c_matrix=c1, object_nbytes=1024,
+                )
+            else:
+                c2 = np.full((n, n), 500.0, dtype=np.float64)
+                return DaskExecutionResult(
+                    status="COMPLETED", n=n, block_size=250, nb=2, time_e2e_s=0.05,
+                    checksum=float(np.sum(c2)) + 1.0, c_matrix=c2, object_nbytes=1024,
+                )
+
+        mock_engine.multiply.side_effect = mock_multiply
+        runner = PilotRunner(
+            data_dir=self.data_dir,
+            results_csv=self.results_csv,
+            metadata_dir=self.metadata_dir,
+            cluster_manager=self.mock_cm,
+            session_budget_s=900.0,
+        )
+        summary = runner.run()
+        self.assertEqual(summary["completed_samples"], 1)  # only pilot_500_r1
+        self.assertEqual(summary["failed_samples"], 5)
+        statuses = {r.sample_id: r.status for r in summary["records"]}
+        self.assertEqual(statuses["pilot_250_w0"], "FAILED")
+        self.assertEqual(statuses["pilot_250_r1"], "FAILED")
+        self.assertEqual(statuses["pilot_500_w0"], "FAILED")
+        self.assertEqual(statuses["pilot_500_r1"], "COMPLETED")
+        self.assertEqual(statuses["pilot_500_r2"], "FAILED")
+
+    @patch("src.dask_matrix.pilot_runner.ResourceWatchdog")
+    @patch("src.dask_matrix.pilot_runner.DistributedBlockMatmul")
+    def test_pilot_timeout_marks_not_run_and_closes_injected_cluster(self, mock_engine_cls, mock_wd_cls):
+        """TIMEOUT in PilotRunner must mark remaining samples NOT_RUN_AFTER_TIMEOUT and close cluster immediately."""
+        mock_wd = MagicMock()
+        mock_wd.breach_detected = False
+        mock_wd.peak_process_sum_mib = 120.0
+        mock_wd.samples = []
+        mock_wd.peak_working_set_per_pid_mib = {}
+        mock_wd_cls.return_value = mock_wd
+
+        mock_engine = MagicMock()
+        mock_engine.multiply.return_value = DaskExecutionResult(
+            status="TIMEOUT", n=250, block_size=250, nb=1, time_e2e_s=None,
+            checksum=None, c_matrix=None, error_reason="Timed out", elapsed_until_abort_s=120.0,
+        )
+        mock_engine_cls.return_value = mock_engine
+
+        runner = PilotRunner(
+            data_dir=self.data_dir,
+            results_csv=self.results_csv,
+            metadata_dir=self.metadata_dir,
+            cluster_manager=self.mock_cm,
+            session_budget_s=900.0,
+        )
+        summary = runner.run()
+        statuses = [r.status for r in summary["records"]]
+        self.assertEqual(statuses[0], "TIMEOUT")
+        self.assertTrue(all(s == "NOT_RUN_AFTER_TIMEOUT" for s in statuses[1:]))
+        mock_wd.stop.assert_called()
+        self.mock_cm.close.assert_called_once()
+
+    @patch("src.dask_matrix.pilot_runner.DistributedBlockMatmul")
+    def test_pilot_finally_closes_injected_cm_and_except_survives_logger_error(self, mock_engine_cls):
+        """PilotRunner closes injected cluster_manager in finally and survives logger.log error in except."""
+        mock_engine = MagicMock()
+        mock_engine.multiply.side_effect = RuntimeError("Engine boom")
+        mock_engine_cls.return_value = mock_engine
+
+        runner = PilotRunner(
+            data_dir=self.data_dir,
+            results_csv=self.results_csv,
+            metadata_dir=self.metadata_dir,
+            cluster_manager=self.mock_cm,
+            session_budget_s=900.0,
+        )
+        with patch("src.dask_matrix.pilot_runner.RawResultsLogger.log", side_effect=OSError("disk full")):
+            summary = runner.run()
+
+        self.assertEqual(summary["total_samples"], 6)
+        self.assertEqual(summary["completed_samples"], 0)
+        self.mock_cm.close.assert_called_once()
+
 
 class TestWatchdogSafeguards(unittest.TestCase):
     """Tests watchdog safe stop timing bounds, concurrency locks, and error classification."""
@@ -722,16 +832,22 @@ class TestPilotValidationRoutines(unittest.TestCase):
         self.assertGreater(res_bad.max_abs_diff, 1e-5)
 
     def test_validation_finitude_and_non_finite_detection(self):
-        mat_good = np.ones((500, 500), dtype=np.float64)
-        self.assertTrue(np.all(np.isfinite(mat_good)))
+        validator = MatrixValidator()
+        ref = np.ones((16, 16), dtype=np.float64)
 
-        mat_nan = np.ones((500, 500), dtype=np.float64)
+        self.assertTrue(validator.validate_matrices(ref.copy(), ref).passed)
+
+        mat_nan = ref.copy()
         mat_nan[0, 0] = np.nan
-        self.assertFalse(np.all(np.isfinite(mat_nan)))
+        res_nan = validator.validate_matrices(mat_nan, ref)
+        self.assertFalse(res_nan.passed)
+        self.assertFalse(res_nan.all_finite)
 
-        mat_inf = np.ones((500, 500), dtype=np.float64)
+        mat_inf = ref.copy()
         mat_inf[0, 0] = np.inf
-        self.assertFalse(np.all(np.isfinite(mat_inf)))
+        res_inf = validator.validate_matrices(mat_inf, ref)
+        self.assertFalse(res_inf.passed)
+        self.assertFalse(res_inf.all_finite)
 
 
 class TestClusterManagerStartupAndCleanup(unittest.TestCase):
@@ -831,7 +947,7 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
         """Startup timeout must pass actual remaining time even when below 100ms without artificial clamp."""
         from src.dask_matrix.cluster_manager import ClusterManager
         mock_cluster = MagicMock()
-        mock_cluster.workers = {}
+        mock_cluster.workers = {"worker_0": MagicMock(pid=os.getpid())}
         mock_cluster.scheduler.pid = os.getpid()
         mock_cluster_cls.return_value = mock_cluster
 
@@ -1096,6 +1212,53 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
             self.assertIn("Required matrix file not found", sidecar_json["failure_reason"])
         finally:
             shutil.rmtree(test_dir, ignore_errors=True)
+
+
+class TestEngineValidationAndTelemetryContracts(unittest.TestCase):
+    """Verifies input matrix shape validation and dict Client.nbytes() handling."""
+
+    def test_multiply_rejects_mismatched_and_invalid_shapes_before_timing(self):
+        """Non-ndarray, non-2D, non-square, or shape-mismatched inputs fail before scatter."""
+        mock_client = MagicMock()
+        engine = DistributedBlockMatmul(client=mock_client, block_size=250)
+
+        with self.assertRaises(TypeError):
+            engine.multiply([[1.0]], np.ones((1, 1)))  # type: ignore
+
+        for bad_a, bad_b in [
+            (np.ones((4,)), np.ones((4,))),
+            (np.ones((4, 6)), np.ones((4, 6))),
+            (np.ones((4, 4)), np.ones((4, 6))),
+            (np.ones((4, 4)), np.ones((6, 6))),
+            (np.ones((0, 0)), np.ones((0, 0))),
+        ]:
+            with self.assertRaises(ValueError):
+                engine.multiply(bad_a, bad_b)
+
+        mock_client.scatter.assert_not_called()
+
+    def test_object_nbytes_dict_summation_and_mock_safety(self):
+        """Telemetry and DistributedBlockMatmul sum dict client.nbytes() outputs and reject MagicMocks."""
+        from src.dask_matrix.telemetry import TelemetryCollector, extract_object_nbytes
+
+        self.assertEqual(extract_object_nbytes({"tcp://127.0.0.1:1001": 4000, "tcp://127.0.0.1:1002": 2000}), 6000)
+        self.assertEqual(extract_object_nbytes(1024), 1024)
+        self.assertIsNone(extract_object_nbytes(MagicMock()))
+        self.assertIsNone(extract_object_nbytes({"k": True}))
+
+        mock_client = MagicMock()
+        mock_client.nbytes.return_value = {"worker-0": 5120, "worker-1": 2560}
+        collector = TelemetryCollector(mock_client)
+        self.assertEqual(collector.get_object_nbytes(), 7680)
+
+        mock_client.scatter.return_value = MagicMock()
+        mock_client.submit.return_value = MagicMock()
+        mock_client.gather.return_value = np.ones((2, 2), dtype=np.float64)
+        with patch("distributed.wait", return_value=([MagicMock()], [])):
+            engine = DistributedBlockMatmul(client=mock_client, block_size=250)
+            res = engine.multiply(np.ones((2, 2), dtype=np.float64), np.ones((2, 2), dtype=np.float64))
+        self.assertEqual(res.status, "COMPLETED")
+        self.assertEqual(res.object_nbytes, 7680)
 
 
 if __name__ == "__main__":

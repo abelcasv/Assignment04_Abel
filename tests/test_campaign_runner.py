@@ -106,11 +106,27 @@ class TestCampaignPlanSpecification(unittest.TestCase):
         orders = [s.execution_order for s in CAMPAIGN_PLAN]
         self.assertEqual(orders, list(range(1, 37)))
 
-    def test_05_rejection_of_multiworker(self):
-        """Req 5: Rejection of p > 1 enforcing DEC-01."""
-        with self.assertRaises(PermissionError) as ctx:
-            validate_campaign_plan(CAMPAIGN_PLAN, expected_worker_count=2)
-        self.assertIn("DEC-01", str(ctx.exception))
+    def test_05_rejection_of_multiworker_without_permission(self):
+        """Req 5: Rejection of p > 1 enforcing DEC-01 when permission evidence is absent."""
+        with patch("src.dask_matrix.cluster_manager.DECISIONS_DIR", "__nonexistent_decisions_dir__"):
+            with self.assertRaises(PermissionError) as ctx:
+                validate_campaign_plan(CAMPAIGN_PLAN, expected_worker_count=2)
+            self.assertIn("DEC-01", str(ctx.exception))
+
+    def test_05b_multiworker_strong_scaling_plan_validation(self):
+        """With DEC-01 permission present, p=2 strong-scaling plan validates cleanly."""
+        plan_p2 = build_campaign_plan(sizes=(1000, 1500, 2000), worker_count=2, repetitions=5)
+        self.assertEqual(len(plan_p2), 18)
+        self.assertTrue(all(s.worker_count == 2 for s in plan_p2))
+        self.assertTrue(all(s.sample_id.startswith("campaign_p2_") for s in plan_p2))
+        self.assertTrue(
+            validate_campaign_plan(
+                plan_p2,
+                expected_sizes=(1000, 1500, 2000),
+                expected_worker_count=2,
+                expected_repetitions=5,
+            )
+        )
 
     def test_06_rejection_of_malformed_plans(self):
         """Req 6: Plan validation rejects duplicate IDs, wrong sizes, or invalid budgets."""
@@ -783,13 +799,15 @@ class TestMockedCampaignExecution(unittest.TestCase):
                     elapsed_until_abort_s=None,
                     object_nbytes=1024,
                 )
+            # Make rep 3 diverge from rep 2 by +50.0 so test falsifies rep-2 becoming a silent reference
+            chk = float(n * n) + (50.0 if rep == 3 else 0.0)
             return DaskExecutionResult(
                 status="COMPLETED",
                 n=n,
                 block_size=250,
                 nb=max(1, n // 250),
                 time_e2e_s=0.25,
-                checksum=float(n * n),
+                checksum=chk,
                 c_matrix=np.ones((n, n), dtype=np.float64),
                 error_reason=None,
                 elapsed_until_abort_s=None,
@@ -813,10 +831,13 @@ class TestMockedCampaignExecution(unittest.TestCase):
         recs_750 = [r for r in summary["records"] if r.n == 750]
         rep1_rec = next(r for r in recs_750 if r.repetition == 1)
         rep2_rec = next(r for r in recs_750 if r.repetition == 2)
+        rep3_rec = next(r for r in recs_750 if r.repetition == 3)
 
         self.assertEqual(rep1_rec.status, "FAILED")
-        # Repetition 2 completes its computation and finitude check, but did NOT establish a reference
+        # Repetition 2 completes its finitude check, and rep 3 with a divergent checksum still
+        # completes (proving rep 2 did NOT become a silent reference).
         self.assertEqual(rep2_rec.status, "COMPLETED")
+        self.assertEqual(rep3_rec.status, "COMPLETED")
 
     @patch("src.dask_matrix.campaign_runner.DistributedBlockMatmul")
     @patch("src.dask_matrix.campaign_runner.ResourceWatchdog")
@@ -939,6 +960,135 @@ class TestMockedCampaignExecution(unittest.TestCase):
         self.assertEqual(len(timeout_recs), 1)
         self.assertEqual(len(not_run_recs), 33)
         self.assertTrue(mock_cm.close.called)
+
+    @patch("src.dask_matrix.campaign_runner.DistributedBlockMatmul")
+    @patch("src.dask_matrix.campaign_runner.ResourceWatchdog")
+    def test_26_completed_with_none_c_matrix_or_checksum_fails_closed(self, mock_wd_cls, mock_engine_cls):
+        """COMPLETED status with None c_matrix or None checksum must be marked FAILED."""
+        mock_cm, _ = self._create_mock_cluster_manager()
+        mock_wd = MagicMock()
+        mock_wd.breach_detected = False
+        mock_wd.peak_process_sum_mib = 100.0
+        mock_wd.samples = []
+        mock_wd.peak_working_set_per_pid_mib = {}
+        mock_wd_cls.return_value = mock_wd
+
+        def mock_mult(*args, **kwargs):
+            a_matrix = kwargs.get("a_matrix", args[0] if len(args) > 0 else None)
+            n = a_matrix.shape[0] if a_matrix is not None else 750
+            return DaskExecutionResult(
+                status="COMPLETED",
+                n=n,
+                block_size=250,
+                nb=max(1, n // 250),
+                time_e2e_s=0.1,
+                checksum=None,
+                c_matrix=None if n == 250 else np.ones((n, n), dtype=np.float64),
+                error_reason=None,
+                object_nbytes=1024,
+            )
+
+        mock_engine = MagicMock()
+        mock_engine.multiply.side_effect = mock_mult
+        mock_engine_cls.return_value = mock_engine
+
+        runner = CampaignRunner(
+            data_dir=self.data_dir,
+            results_csv=self.results_csv,
+            metadata_dir=self.metadata_dir,
+            cluster_manager=mock_cm,
+        )
+        with patch.object(CampaignRunner, "_load_matrix", side_effect=mock_load_matrix):
+            summary = runner.run()
+
+        self.assertEqual(summary["completed_samples"], 5)  # only warmups for n >= 500
+        recs_250 = [r for r in summary["records"] if r.n == 250]
+        self.assertTrue(all(r.status == "FAILED" for r in recs_250))
+        recs_750_measured = [r for r in summary["records"] if r.n == 750 and not r.is_warmup]
+        self.assertTrue(all(r.status == "FAILED" for r in recs_750_measured))
+
+    def test_27_tampered_c250_reference_fails_sha256_before_cluster_start(self):
+        """Tampering validation/reference/C_250.csv or an input matrix must fail input integrity."""
+        mock_cm, _ = self._create_mock_cluster_manager()
+        with open(os.path.join(self.ref_dir, "C_250.csv"), "wb") as f:
+            f.write(b"999.0\n")  # Mismatch against SHA256SUMS.txt
+
+        runner = CampaignRunner(
+            data_dir=self.data_dir,
+            results_csv=self.results_csv,
+            metadata_dir=self.metadata_dir,
+            cluster_manager=mock_cm,
+        )
+        summary = runner.run()
+        mock_cm.start.assert_not_called()
+        self.assertEqual(summary["completed_samples"], 0)
+        self.assertEqual(summary["failed_samples"], 36)
+        self.assertTrue(all(r.process_count == 1 for r in summary["records"]))
+        # Dense matrices loaded prior to C_250 check retain their real load durations
+        self.assertTrue(all(r.input_load_s is not None for r in summary["records"]))
+
+        import json
+        with open(summary["sidecar_path"], "r", encoding="utf-8") as f:
+            sidecar = json.load(f)
+        self.assertEqual(sidecar["status"], "FAILED")
+        self.assertIsNotNone(sidecar["failure_reason"])
+
+        # Now tamper A_500.csv so subsequent dimensions (>= 750) are never loaded -> input_load_s is None
+        res_csv_2 = os.path.join(self.test_dir, "raw_partial_load.csv")
+        with open(os.path.join(self.dense_dir, "A_500.csv"), "wb") as f:
+            f.write(b"tampered\n")
+        runner2 = CampaignRunner(
+            data_dir=self.data_dir,
+            results_csv=res_csv_2,
+            metadata_dir=self.metadata_dir,
+            cluster_manager=mock_cm,
+        )
+        summary2 = runner2.run()
+        unloaded_750 = [r for r in summary2["records"] if r.n >= 750]
+        self.assertTrue(all(r.input_load_s is None for r in unloaded_750))
+
+    @patch("src.dask_matrix.campaign_runner.DistributedBlockMatmul")
+    @patch("src.dask_matrix.campaign_runner.ResourceWatchdog")
+    def test_28_pre_execution_aborted_watchdog_preserved_and_empty_plan_rejected(
+        self, mock_wd_cls, mock_engine_cls
+    ):
+        """ABORTED_WATCHDOG pre-execution breach preserves status; empty plan=() is rejected."""
+        mock_cm, _ = self._create_mock_cluster_manager()
+        empty_runner = CampaignRunner(
+            data_dir=self.data_dir,
+            results_csv=self.results_csv,
+            metadata_dir=self.metadata_dir,
+            cluster_manager=mock_cm,
+            plan=(),
+        )
+        with self.assertRaises(ValueError):
+            empty_runner.run()
+
+        mock_wd = MagicMock()
+        mock_wd.breach_detected = True
+        mock_wd.breach_type = "ABORTED_WATCHDOG"
+        mock_wd.breach_reason = "Host available RAM floor breached prior to execution."
+        mock_wd.peak_process_sum_mib = 200.0
+        mock_wd.samples = []
+        mock_wd.peak_working_set_per_pid_mib = {}
+        mock_wd_cls.return_value = mock_wd
+
+        runner = CampaignRunner(
+            data_dir=self.data_dir,
+            results_csv=self.results_csv,
+            metadata_dir=self.metadata_dir,
+            cluster_manager=mock_cm,
+        )
+        with patch.object(CampaignRunner, "_load_matrix", side_effect=mock_load_matrix):
+            summary = runner.run()
+
+        mock_engine_cls.return_value.multiply.assert_not_called()
+        self.assertTrue(all(r.status == "ABORTED_WATCHDOG" for r in summary["records"]))
+
+        import json
+        with open(summary["sidecar_path"], "r", encoding="utf-8") as f:
+            sidecar = json.load(f)
+        self.assertEqual(sidecar["status"], "ABORTED_WATCHDOG")
 
 
 if __name__ == "__main__":
