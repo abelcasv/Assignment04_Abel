@@ -35,12 +35,15 @@ def compute_file_sha256(filepath: Path) -> str:
     return hasher.hexdigest().upper()
 
 
-def resolve_artifact_path(raw_path: str, repo_root: Path) -> Tuple[Optional[Path], Optional[str]]:
+def resolve_artifact_path(raw_path: Any, repo_root: Path) -> Tuple[Optional[Path], Optional[str]]:
     """
     Resolve and validate an artifact path against the repository root.
-    Rejects any path that escapes repo_root via directory traversal or absolute symlinks.
+    Rejects non-string values or any path that escapes repo_root via directory traversal or symlinks.
     """
-    # Normalize separators
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None, f"Invalid artifact path (must be a non-empty string): {raw_path!r}"
+
+    repo_root = repo_root.resolve()
     normalized = raw_path.replace("\\", "/")
     candidate = Path(normalized)
 
@@ -60,62 +63,74 @@ def resolve_artifact_path(raw_path: str, repo_root: Path) -> Tuple[Optional[Path
             return None, f"Path traversal escapes repository root: {raw_path}"
 
 
-def extract_artifact_entries(manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
+def extract_artifact_entries(manifest: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[str]]:
     """
     Extract all artifact verification targets from the provenance manifest schema.
-    Returns a list of dicts:
-      {
-        "name": str,
-        "raw_path": str,
-        "expected_sha256": str,
-        "optional": bool
-      }
+    Returns (entries, structural_errors) so malformed entries fail closed instead of being skipped.
     """
     entries: List[Dict[str, Any]] = []
+    structural_errors: List[str] = []
+
+    if not isinstance(manifest, dict):
+        return entries, [f"Manifest root must be a JSON object, got {type(manifest).__name__}."]
 
     # 1. Source script
-    if "source_script" in manifest and "source_script_sha256" in manifest:
-        entries.append({
-            "name": "source_script",
-            "raw_path": manifest["source_script"],
-            "expected_sha256": manifest["source_script_sha256"],
-            "optional": False
-        })
-
-    # 2. Raw measurements CSV
-    if "raw_measurements_csv" in manifest:
-        item = manifest["raw_measurements_csv"]
-        if isinstance(item, dict) and "path" in item and "sha256" in item:
+    if "source_script" in manifest or "source_script_sha256" in manifest:
+        if "source_script" in manifest and "source_script_sha256" in manifest:
             entries.append({
-                "name": "raw_measurements_csv",
-                "raw_path": item["path"],
-                "expected_sha256": item["sha256"],
-                "optional": item.get("optional", False)
+                "name": "source_script",
+                "raw_path": manifest["source_script"],
+                "expected_sha256": manifest["source_script_sha256"],
+                "optional": False,
             })
+        else:
+            structural_errors.append(
+                "Malformed manifest entry 'source_script': both 'source_script' and 'source_script_sha256' are required."
+            )
 
-    # 3. Campaign sidecar JSON
-    if "campaign_sidecar_json" in manifest:
-        item = manifest["campaign_sidecar_json"]
-        if isinstance(item, dict) and "path" in item and "sha256" in item:
-            entries.append({
-                "name": "campaign_sidecar_json",
-                "raw_path": item["path"],
-                "expected_sha256": item["sha256"],
-                "optional": item.get("optional", False)
-            })
-
-    # 4. Derived artifacts dictionary
-    if "derived_artifacts" in manifest and isinstance(manifest["derived_artifacts"], dict):
-        for name, item in manifest["derived_artifacts"].items():
-            if isinstance(item, dict) and "path" in item and "sha256" in item:
+    # 2 & 3. Single artifact dictionaries
+    for key in (
+        "raw_measurements_csv",
+        "campaign_sidecar_json",
+        "strong_scaling_manifest_json",
+        "strong_scaling_diagnostics_json",
+    ):
+        if key in manifest:
+            item = manifest[key]
+            if not isinstance(item, dict) or "path" not in item or "sha256" not in item:
+                structural_errors.append(
+                    f"Malformed manifest entry '{key}': expected dict with 'path' and 'sha256' keys."
+                )
+            else:
                 entries.append({
-                    "name": f"derived:{name}",
+                    "name": key,
                     "raw_path": item["path"],
                     "expected_sha256": item["sha256"],
-                    "optional": item.get("optional", False)
+                    "optional": bool(item.get("optional", False)),
                 })
 
-    return entries
+    # 4. Derived artifacts dictionary
+    if "derived_artifacts" in manifest:
+        derived = manifest["derived_artifacts"]
+        if not isinstance(derived, dict):
+            structural_errors.append(
+                f"Malformed manifest section 'derived_artifacts': expected dict, got {type(derived).__name__}."
+            )
+        else:
+            for name, item in derived.items():
+                if not isinstance(item, dict) or "path" not in item or "sha256" not in item:
+                    structural_errors.append(
+                        f"Malformed derived artifact entry 'derived:{name}': expected dict with 'path' and 'sha256' keys."
+                    )
+                else:
+                    entries.append({
+                        "name": f"derived:{name}",
+                        "raw_path": item["path"],
+                        "expected_sha256": item["sha256"],
+                        "optional": bool(item.get("optional", False)),
+                    })
+
+    return entries, structural_errors
 
 
 def verify_provenance_manifest(
@@ -147,8 +162,20 @@ def verify_provenance_manifest(
         errors.append(f"Failed to parse manifest JSON ({manifest_path}): {exc}")
         return False, records, errors
 
-    entries = extract_artifact_entries(manifest)
-    if not entries:
+    entries, structural_errors = extract_artifact_entries(manifest)
+    for err_msg in structural_errors:
+        errors.append(err_msg)
+        records.append({
+            "name": "manifest_structure",
+            "path": str(manifest_path),
+            "expected_sha256": None,
+            "computed_sha256": None,
+            "size_bytes": None,
+            "status": "MALFORMED_ENTRY",
+            "message": err_msg,
+        })
+
+    if not entries and not structural_errors:
         errors.append(f"No verifiable artifact entries found in manifest: {manifest_path}")
         return False, records, errors
 

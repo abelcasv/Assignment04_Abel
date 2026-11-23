@@ -39,6 +39,39 @@ A3_FIXTURE_HASHES = {
     "expected_C_4.csv": "7df8b59e00f12c4f587a75ab5f4810f44cf9ebb63c02ddf8483c3da6da9ef1fb",
 }
 
+A3_FIXTURE_MATRICES = {
+    "identity_4.csv": [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ],
+    "zero_4.csv": [
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0],
+    ],
+    "known_A_4.csv": [
+        [1.0, 2.0, 3.0, 4.0],
+        [5.0, 6.0, 7.0, 8.0],
+        [9.0, 1.0, 2.0, 3.0],
+        [4.0, 5.0, 6.0, 7.0],
+    ],
+    "known_B_4.csv": [
+        [7.0, 6.0, 5.0, 4.0],
+        [3.0, 2.0, 1.0, 9.0],
+        [8.0, 7.0, 6.0, 5.0],
+        [1.0, 2.0, 3.0, 4.0],
+    ],
+    "expected_C_4.csv": [
+        [41.0, 39.0, 37.0, 53.0],
+        [117.0, 107.0, 97.0, 141.0],
+        [85.0, 76.0, 67.0, 67.0],
+        [98.0, 90.0, 82.0, 119.0],
+    ],
+}
+
 
 def sha256_of_file(filepath: str) -> str:
     hasher = hashlib.sha256()
@@ -46,6 +79,13 @@ def sha256_of_file(filepath: str) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def _write_synthesized_fixture(dst_path: str, rows: list) -> None:
+    """Writes a 4x4 A3 CSV fixture using canonical %.6f precision and CRLF line endings."""
+    payload = "".join(",".join(f"{val:.6f}" for val in row) + "\r\n" for row in rows)
+    with open(dst_path, "wb") as f:
+        f.write(payload.encode("ascii"))
 
 
 def install_a3_fixtures(target_dir: str, a3_orig_dir: str) -> bool:
@@ -56,16 +96,17 @@ def install_a3_fixtures(target_dir: str, a3_orig_dir: str) -> bool:
         src_path = os.path.join(a3_orig_dir, name)
         dst_path = os.path.join(target_dir, name)
 
-        if not os.path.isfile(src_path):
-            print(f"  [ERROR] A3 original fixture missing: {src_path}")
-            all_matched = False
-            continue
+        if os.path.isfile(src_path):
+            shutil.copyfile(src_path, dst_path)
+            source_mode = "copied"
+        else:
+            _write_synthesized_fixture(dst_path, A3_FIXTURE_MATRICES[name])
+            source_mode = "synthesized"
 
-        shutil.copyfile(src_path, dst_path)
         actual_hash = sha256_of_file(dst_path)
 
         if actual_hash.lower() == expected_hash.lower():
-            print(f"  [OK] Installed fixture {name} (SHA-256 verified)")
+            print(f"  [OK] Installed fixture {name} ({source_mode}, SHA-256 verified)")
         else:
             print(f"  [HASH MISMATCH] Fixture {name}: expected {expected_hash}, got {actual_hash}")
             all_matched = False
@@ -120,6 +161,10 @@ def prepare_a3_runtime() -> bool:
     fixtures_ok = install_a3_fixtures(target_val_dir, a3_orig_val)
     if not fixtures_ok:
         all_matched = False
+
+    if not all_matched:
+        print("\n[FAILURE] Preparation encountered errors; runtime manifest was not finalized.")
+        return False
 
     # 3. Save runtime manifest
     manifest_path = os.path.join(runtime_dir, "A3_RUNTIME_MANIFEST.txt")

@@ -132,6 +132,10 @@ def prepare_a1_runtime() -> bool:
     fixture_hashes = write_a1_fixtures(target_data_dir)
     print(f"  [OK] Installed {len(fixture_hashes)} validation fixtures in {target_data_dir}")
 
+    if not all_matched:
+        print("\n[FAILURE] Preparation encountered errors; runtime manifest was not finalized.")
+        return False
+
     # 3. Save runtime manifest
     manifest_path = os.path.join(runtime_dir, "A1_RUNTIME_MANIFEST.txt")
     with open(manifest_path, "w", encoding="utf-8", newline="\n") as f:

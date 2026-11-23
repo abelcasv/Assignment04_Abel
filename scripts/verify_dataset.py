@@ -11,6 +11,7 @@ This script performs strictly read-only verifications:
 4. Verifies line endings (LF) and formatting.
 """
 
+import argparse
 import hashlib
 import math
 import os
@@ -67,14 +68,28 @@ def verify_matrix_contents(manifest_path: str) -> tuple[int, int, list[str]]:
     failed = 0
     errors = []
 
+    if not os.path.isfile(manifest_path):
+        return 0, 1, [f"Manifest not found: {manifest_path}"]
+
     with open(manifest_path, "r", encoding="utf-8") as f:
-        for line in f:
+        for line_num, line in enumerate(f, start=1):
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
 
-            _, rel_path = line.split(maxsplit=1)
+            parts = line.split(maxsplit=1)
+            if len(parts) != 2:
+                errors.append(f"Line {line_num}: malformed entry: {line}")
+                failed += 1
+                continue
+
+            _, rel_path = parts
             full_path = os.path.join(data_dir, rel_path.replace("/", os.sep))
+
+            if not os.path.isfile(full_path):
+                errors.append(f"Missing file: {rel_path}")
+                failed += 1
+                continue
 
             # Determine expected dimension from filename
             basename = os.path.basename(rel_path)
@@ -86,15 +101,16 @@ def verify_matrix_contents(manifest_path: str) -> tuple[int, int, list[str]]:
                 if size_str.isdigit():
                     expected_n = int(size_str)
 
-            # Inspect lines and columns
+            # Inspect full file for CR ('\r') bytes across all line lengths
             row_count = 0
             has_cr = False
             all_finite = True
 
             with open(full_path, "rb") as raw_f:
-                raw_bytes = raw_f.read(4096)
-                if b"\r" in raw_bytes:
-                    has_cr = True
+                for chunk in iter(lambda: raw_f.read(65536), b""):
+                    if b"\r" in chunk:
+                        has_cr = True
+                        break
 
             if has_cr:
                 errors.append(f"{rel_path}: Contains Windows CR ('\\r') characters; LF expected.")
@@ -134,9 +150,21 @@ def verify_matrix_contents(manifest_path: str) -> tuple[int, int, list[str]]:
     return passed, failed, errors
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    manifest_path = os.path.join(repo_root, "data", "SHA256SUMS.txt")
+    default_manifest = os.path.join(repo_root, "data", "SHA256SUMS.txt")
+
+    parser = argparse.ArgumentParser(
+        description="Verify dataset SHA-256 checksums, LF line endings, dimensions, and finite float64 values."
+    )
+    parser.add_argument(
+        "manifest",
+        nargs="?",
+        default=default_manifest,
+        help="Optional path to SHA256SUMS manifest (default: data/SHA256SUMS.txt)",
+    )
+    args = parser.parse_args(argv)
+    manifest_path = os.path.abspath(args.manifest)
 
     print("=================================================================")
     print("Assignment 4: Dataset Integrity Verification")
@@ -155,11 +183,11 @@ def main() -> None:
 
     if f_hash == 0 and f_cont == 0:
         print("\n[SUCCESS] All data files verified bit-for-bit with correct dimensions and finite values.")
-        sys.exit(0)
+        return 0
     else:
         print("\n[FAILURE] Integrity verification encountered errors.")
-        sys.exit(1)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

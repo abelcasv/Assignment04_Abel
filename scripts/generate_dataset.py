@@ -169,10 +169,14 @@ def write_sha256_manifest(data_dir: str) -> str:
     data_root = os.path.abspath(data_dir)
     matrix_files = []
 
-    for root, _, files in os.walk(data_root):
-        for f in files:
-            if f.endswith(".csv"):
-                matrix_files.append(os.path.join(root, f))
+    for subdir in ("dense", "validation"):
+        subdir_path = os.path.join(data_root, subdir)
+        if not os.path.isdir(subdir_path):
+            continue
+        for root, _, files in os.walk(subdir_path):
+            for f in files:
+                if f.endswith(".csv"):
+                    matrix_files.append(os.path.join(root, f))
 
     matrix_files.sort()
     lines = [
