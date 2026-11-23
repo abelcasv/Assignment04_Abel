@@ -4,19 +4,18 @@ src.adapters.a1_adapter — Non-Invasive Execution Adapter for Assignment 1
 Provides the runner interface for the frozen Assignment 1 sequential baseline:
 - Never modifies the source code in baselines/a1_sequential/benchmark.c or its Makefile.
 - Prepares the expected runtime layout in build/a1_runtime/ via scripts/prepare_a1_runtime.py.
-- Invokes build/bin/a1_benchmark.exe (compiled in Phase 5) with build/a1_runtime as cwd.
-- Captures stdout, parses execution time, and records observations to raw_measurements.csv.
+- Invokes build/bin/a1_benchmark.exe with build/a1_runtime as argv[1] and cwd.
+- Captures stdout and CSV outputs, parses exact execution time, and fails closed on missing timing.
 - Enforces timeout of 120 s per sample.
 """
 
+import csv
 from dataclasses import dataclass
 import os
 import re
 import subprocess
 import time
-from typing import Dict, List, Optional
-
-from src.dask_matrix.results_logger import MeasurementRecord, RawResultsLogger
+from typing import Optional
 
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -63,7 +62,7 @@ class A1SequentialAdapter:
 
         Args:
             n: Matrix dimension (100, 250, 500, 750, or 1000).
-            repetition: Repetition index.
+            repetition: Repetition index (1..5).
             is_warmup: Whether this run is a warm-up.
             timeout_s: Maximum execution duration before timing out (default: 120 s).
 
@@ -90,7 +89,7 @@ class A1SequentialAdapter:
                 error_reason=f"Runtime directory not found at {self.runtime_dir}. Run scripts/prepare_a1_runtime.py.",
             )
 
-        cmd = [self.binary_path]
+        cmd = [self.binary_path, self.runtime_dir]
         t0 = time.perf_counter()
 
         try:
@@ -114,8 +113,23 @@ class A1SequentialAdapter:
                     elapsed_until_abort_s=elapsed,
                 )
 
-            # Parse timing from stdout (e.g., "Time taken: 0.123456 seconds" or similar pattern)
-            kernel_time = self._parse_timing(proc.stdout, n)
+            kernel_time = self._parse_timing_from_csv(n, repetition)
+            if kernel_time is None:
+                kernel_time = self._parse_timing(proc.stdout, n, repetition=repetition)
+
+            if kernel_time is None:
+                return A1ExecutionResult(
+                    status="FAILED",
+                    n=n,
+                    time_kernel_s=None,
+                    stdout=proc.stdout,
+                    stderr=proc.stderr,
+                    error_reason=(
+                        f"Failed to parse A1 kernel timing for n={n}, repetition={repetition} "
+                        "from c_results.csv or stdout."
+                    ),
+                    elapsed_until_abort_s=elapsed,
+                )
 
             return A1ExecutionResult(
                 status="COMPLETED",
@@ -148,15 +162,46 @@ class A1SequentialAdapter:
                 elapsed_until_abort_s=elapsed,
             )
 
-    def _parse_timing(self, stdout: str, n: int) -> Optional[float]:
-        """Extracts kernel execution time from A1 benchmark console output."""
-        # A1 harness outputs lines like: "Matrix size: 250, Time: 0.034512 s"
+    def _parse_timing_from_csv(self, n: int, repetition: int = 1) -> Optional[float]:
+        """Extracts kernel time from <runtime_dir>/results/c_results.csv when present."""
+        csv_path = os.path.join(self.runtime_dir, "results", "c_results.csv")
+        if not os.path.isfile(csv_path):
+            return None
+        try:
+            with open(csv_path, "r", encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f):
+                    if (
+                        row.get("language", "").strip().lower() == "c"
+                        and int(row["n"]) == n
+                        and int(row["repetition"]) == repetition
+                    ):
+                        return float(row["time_s"])
+        except Exception:
+            return None
+        return None
+
+    def _parse_timing(self, stdout: str, n: int, repetition: int = 1) -> Optional[float]:
+        """
+        Extracts kernel execution time from A1 benchmark console output.
+
+        Matches benchmark.c multi-line sections:
+            Benchmarking n=250...
+              Rep 1/5: 0.0912 s | 5.83 MB (RSS)
+        """
+        current_n: Optional[int] = None
         for line in stdout.splitlines():
-            if str(n) in line:
-                match = re.search(r"([0-9]+\.[0-9]+)\s*s?", line)
-                if match:
+            dim_match = re.match(r"^\s*Benchmarking\s+n\s*=\s*(\d+)\b", line)
+            if dim_match:
+                current_n = int(dim_match.group(1))
+                continue
+            if current_n == n:
+                rep_match = re.search(
+                    rf"Rep\s+{repetition}/\d+\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*s\b",
+                    line,
+                )
+                if rep_match:
                     try:
-                        return float(match.group(1))
+                        return float(rep_match.group(1))
                     except ValueError:
-                        pass
+                        return None
         return None

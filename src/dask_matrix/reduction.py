@@ -21,6 +21,7 @@ def build_binary_tree_reduction(
     block_col: int,
     repetition_id: int = 0,
     add_fn: Optional[Callable] = None,
+    key_namespace: Optional[str] = None,
 ) -> Any:
     """
     Builds a binary-tree reduction graph across a list of Nb partial-product futures.
@@ -32,6 +33,8 @@ def build_binary_tree_reduction(
         block_col: Column index j of the output block.
         repetition_id: Unique repetition counter for key uniqueness.
         add_fn: Callable for addition; defaults to block_add.
+        key_namespace: Optional invocation/dimension namespace to prevent key collisions
+            across repeated calls on a persistent Client.
 
     Returns:
         A single Dask future representing the fully accumulated block C_ij.
@@ -50,6 +53,7 @@ def build_binary_tree_reduction(
     current_layer = list(partial_product_futures)
     addition_fn = add_fn or block_add
     round_idx = 0
+    ns_prefix = f"add-{key_namespace}-" if key_namespace else "add-"
 
     while len(current_layer) > 1:
         next_layer = []
@@ -60,9 +64,9 @@ def build_binary_tree_reduction(
                 # Pair of futures to reduce
                 left = current_layer[idx]
                 right = current_layer[idx + 1]
-                # Enforce unique task key per repetition, block coordinates, round, and pair
+                # Enforce unique task key per namespace, repetition, block coordinates, round, and pair
                 task_key = (
-                    f"add-r{repetition_id}-b({block_row},{block_col})"
+                    f"{ns_prefix}r{repetition_id}-b({block_row},{block_col})"
                     f"-round{round_idx}-pair{idx // 2}"
                 )
                 sum_future = client.submit(

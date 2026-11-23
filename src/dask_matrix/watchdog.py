@@ -11,11 +11,12 @@ procedure defined in docs/experimental_protocol.md Section 10.3:
 """
 
 from dataclasses import dataclass, field
+import numbers
 import os
 import sys
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import psutil
 
 
@@ -73,13 +74,15 @@ class ResourceWatchdog:
 
         self._safe_stop_lock = threading.Lock()
         self._safe_stop_executed: bool = False
+        self._samples_lock = threading.Lock()
 
     def start(self) -> None:
         """Starts the watchdog monitoring thread."""
         self._stop_event.clear()
-        self.samples.clear()
-        self.peak_process_sum_mib = 0.0
-        self.peak_working_set_per_pid_mib.clear()
+        with self._samples_lock:
+            self.samples.clear()
+            self.peak_process_sum_mib = 0.0
+            self.peak_working_set_per_pid_mib.clear()
         self.breach_detected = False
         self.breach_type = None
         self.breach_reason = None
@@ -94,11 +97,40 @@ class ResourceWatchdog:
         self._thread.start()
 
     def stop(self) -> None:
-        """Stops the watchdog monitoring thread."""
+        """Stops the watchdog monitoring thread, allowing any active safe-stop to finish."""
         self._stop_event.set()
         if self._thread is not None and self._thread.is_alive():
-            self._thread.join(timeout=1.0)
+            join_timeout = 6.0 if self.breach_detected else 1.0
+            self._thread.join(timeout=join_timeout)
+        if self._thread is not None and not self._thread.is_alive():
             self._thread = None
+
+    def mark_sample_start(self) -> int:
+        """Marks the starting sample index for an upcoming execution window."""
+        with self._samples_lock:
+            return len(self.samples)
+
+    def get_window_metrics(
+        self, start_idx: int
+    ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+        """
+        Extracts (peak_process_sum_mib, latest_driver_rss_mib, peak_single_pid_rss_mib)
+        strictly within the sample window starting at `start_idx`.
+        For sub-interval (< 250 ms) runs with no background sample, takes one boundary sample.
+        """
+        with self._samples_lock:
+            window = list(self.samples[start_idx:])
+        if not window:
+            sample = self._sample_once()
+            with self._samples_lock:
+                self.samples.append(sample)
+                window = [sample]
+
+        peak_rss = max(s.rss_process_sum_mib for s in window)
+        driver_rss = window[-1].rss_driver_mib
+        per_pid_values = [v for s in window for v in s.per_pid_rss_mib.values()]
+        peak_single_pid = max(per_pid_values) if per_pid_values else None
+        return peak_rss, driver_rss, peak_single_pid
 
     def _sample_once(self) -> ProcessMemorySample:
         """Takes a single memory sample across all tracked PIDs."""
@@ -117,12 +149,6 @@ class ResourceWatchdog:
                 total_rss_bytes += rss
                 if pid == driver_pid:
                     driver_rss_bytes = rss
-
-                # Track historical peak per process
-                prev_peak = self.peak_working_set_per_pid_mib.get(pid, 0.0)
-                if per_pid[pid] > prev_peak:
-                    self.peak_working_set_per_pid_mib[pid] = per_pid[pid]
-
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
 
@@ -130,8 +156,13 @@ class ResourceWatchdog:
         driver_rss_mib = driver_rss_bytes / (1024.0 * 1024.0)
         host_avail_mib = psutil.virtual_memory().available / (1024.0 * 1024.0)
 
-        if total_rss_mib > self.peak_process_sum_mib:
-            self.peak_process_sum_mib = total_rss_mib
+        with self._samples_lock:
+            for pid, rss_mib in per_pid.items():
+                prev_peak = self.peak_working_set_per_pid_mib.get(pid, 0.0)
+                if rss_mib > prev_peak:
+                    self.peak_working_set_per_pid_mib[pid] = rss_mib
+            if total_rss_mib > self.peak_process_sum_mib:
+                self.peak_process_sum_mib = total_rss_mib
 
         return ProcessMemorySample(
             timestamp_epoch_s=now,
@@ -148,7 +179,8 @@ class ResourceWatchdog:
             if self.breach_detected:
                 break
             sample = self._sample_once()
-            self.samples.append(sample)
+            with self._samples_lock:
+                self.samples.append(sample)
 
             # Check Threshold 1: Aggregate RSS Ceiling (2.5 GiB) - Priority 1 (Physical Memory Safety)
             if sample.rss_process_sum_mib >= self.rss_ceiling_mib:
@@ -210,8 +242,31 @@ class ResourceWatchdog:
         # Step 2: Cancel in-flight futures
         if self.client is not None:
             try:
-                # Cancel all futures tracked by the client
-                self.client.cancel(list(getattr(self.client, "futures", {}).values()))
+                futures_map = getattr(self.client, "futures", {})
+                if isinstance(futures_map, dict):
+                    try:
+                        from distributed import Future
+                        from distributed.client import FutureState
+                    except Exception:
+                        Future = None  # type: ignore
+                        FutureState = None  # type: ignore
+
+                    to_cancel: List[Any] = []
+                    for key, val in list(futures_map.items()):
+                        if Future is not None and isinstance(val, Future):
+                            to_cancel.append(val)
+                        elif Future is not None and FutureState is not None and isinstance(val, FutureState):
+                            to_cancel.append(Future(key, client=self.client))
+                        else:
+                            to_cancel.append(val)
+                else:
+                    to_cancel = list(futures_map.values())
+
+                if to_cancel or not isinstance(futures_map, dict):
+                    try:
+                        self.client.cancel(to_cancel, force=True)
+                    except TypeError:
+                        self.client.cancel(to_cancel)
             except Exception as e:
                 sys.stderr.write(f"[WATCHDOG] Client task cancellation error: {e}\n")
 
@@ -296,3 +351,50 @@ class ResourceWatchdog:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.stop()
+
+
+def _is_valid_metric(value: Any) -> bool:
+    return value is None or (not isinstance(value, bool) and isinstance(value, numbers.Real))
+
+
+def begin_sample_memory_window(watchdog: Any) -> int:
+    """Safely marks the sample window start index across real or mock watchdogs."""
+    if watchdog is None:
+        return 0
+    mark_fn = getattr(watchdog, "mark_sample_start", None)
+    if callable(mark_fn):
+        idx = mark_fn()
+        if not isinstance(idx, bool) and isinstance(idx, numbers.Integral):
+            return int(idx)
+    return 0
+
+
+def extract_sample_memory_metrics(
+    watchdog: Any, start_idx: int
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Extracts per-sample memory metrics (peak_process_sum_mib, driver_rss_mib,
+    peak_single_pid_rss_mib) from a ResourceWatchdog, falling back cleanly for
+    older mock doubles that only populate summary attributes.
+    """
+    if watchdog is None:
+        return None, None, None
+    if isinstance(watchdog, ResourceWatchdog):
+        return watchdog.get_window_metrics(start_idx)
+
+    get_window = getattr(watchdog, "get_window_metrics", None)
+    if callable(get_window):
+        candidate = get_window(start_idx)
+        if (
+            isinstance(candidate, tuple)
+            and len(candidate) == 3
+            and all(_is_valid_metric(v) for v in candidate)
+        ):
+            return candidate
+
+    peak_rss = getattr(watchdog, "peak_process_sum_mib", None)
+    samples = getattr(watchdog, "samples", None)
+    driver_rss = samples[-1].rss_driver_mib if samples else None
+    per_pid_peaks = getattr(watchdog, "peak_working_set_per_pid_mib", None)
+    peak_ws = max(per_pid_peaks.values()) if per_pid_peaks else None
+    return peak_rss, driver_rss, peak_ws

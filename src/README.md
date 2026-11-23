@@ -20,7 +20,10 @@ src/
 │   ├── reduction.py              # Binary-tree reduction graph builder
 │   ├── distributed_engine.py     # End-to-end distributed multiplication orchestrator
 │   ├── cluster_manager.py        # LocalCluster lifecycle, Gate G1 validation, thread caps
+│   ├── pilot_runner.py           # Phase 7 bounded pilot campaign orchestrator
+│   ├── campaign_runner.py        # Phase 8 full 36-sample campaign orchestrator
 │   ├── watchdog.py               # Process-tree resource monitor and 5-step safe stop
+│   ├── input_verifier.py         # SHA-256 dataset verification and fail-closed loader
 │   ├── validation.py             # Numerical correctness checking against tolerances
 │   ├── telemetry.py              # Dask diagnostic stream and memory telemetry
 │   ├── results_logger.py         # Append-only raw_measurements.csv logger
@@ -42,7 +45,7 @@ $$C_{i, j} = \sum_{k=0}^{N_b-1} A_{i, k} \times B_{k, j}$$
 1. **Multiplication Phase:**
    For each block coordinate $(i, j, k) \in \{0, \dots, N_b-1\}^3$, Dask schedules an independent task:
    $$P_{i, j, k} = \text{block\_multiply}(A_{i, k}, B_{k, j}) = A_{i, k} \times B_{k, j}$$
-   executed via `numpy.matmul` on worker processes with internal BLAS threading restricted to 1 (`OMP_NUM_THREADS=1`).
+   executed via `numpy.matmul` on worker processes with internal BLAS/OpenMP threading restricted to 1 (`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `NUMEXPR_NUM_THREADS=1`).
    Total multiplication tasks: $N_b^3$.
 
 2. **Binary-Tree Reduction Phase:**
@@ -100,10 +103,10 @@ T_Dask_e2e = t1 - t0
 ## 5. Gate G1 / DEC-01 Permission Enforcement
 
 In strict compliance with official course requirement A4-11 (PDF page 7) and `SPEC.md` (DEC-01):
-- Single-worker execution ($p=1$) is permitted.
-- Local multi-worker execution ($p \in \{2, 4, 8, 10\}$) is **BLOCKED** until written instructor permission is stored in `docs/decisions/`.
-- `src/dask_matrix/cluster_manager.py` verifies this condition before launching any cluster. If $p > 1$ and permission is missing, it raises `PermissionError` immediately.
-- **Zero Silent Fallback:** The system will never silently fall back from a requested $p > 1$ count to $p = 1$.
+- Single-worker execution ($p=1$) is always permitted.
+- Local multi-worker execution ($p \in \{2, 4, 8, 10\}$) requires written instructor authorization stored in `docs/decisions/` (recorded in `docs/decisions/DEC-01-instructor-permission.md` on 2026-11-23; previously **BLOCKED** during Phases 1–10).
+- `src/dask_matrix/cluster_manager.py` verifies this condition fail-closed before launching any cluster. If $p > 1$ and the authorization file is absent or empty, it raises `PermissionError` immediately.
+- **Zero Silent Fallback:** The system will never silently fall back from a requested $p > 1$ count to $p = 1$, and all local runs strictly report `physical_machine_count = 1`.
 
 ---
 
@@ -126,22 +129,26 @@ In strict compliance with official course requirement A4-11 (PDF page 7) and `SP
 
 ## 7. Raw Results Logger Schema
 
-`src/dask_matrix/results_logger.py` records every observation to `results/raw/raw_measurements.csv` conforming to the 35+ field schema defined in `docs/experimental_protocol.md` Section 11.1:
+`src/dask_matrix/results_logger.py` records every observation to `results/raw/raw_measurements.csv` conforming to the 44-column schema defined in `docs/experimental_protocol.md` Section 11.1:
 - Append-only integrity with thread-safe file locking.
 - Nullable fields are recorded as empty strings (`""`), never fabricated zeros.
-- Status values: `COMPLETED`, `TIMEOUT`, `OUT_OF_MEMORY`, `FAILED`, `ABORTED_WATCHDOG`.
+- Status values: `COMPLETED`, `TIMEOUT`, `OUT_OF_MEMORY`, `FAILED`, `ABORTED_WATCHDOG`, `ABORTED_BUDGET`, `NOT_RUN_AFTER_OOM`, `NOT_RUN_AFTER_TIMEOUT`.
 
 ---
 
 ## 8. CLI Usage
 
-Static configuration verification (Phase 4 authorized):
+Static configuration verification:
 ```bash
 python -m src.cli --n 1000 --block-size 250 --workers 1 --check-config
 ```
 
-Testing DEC-01 permission gate enforcement:
+Offline $4 \times 4$ and $n=250$ distributed-block fixture verification:
 ```bash
-python -m src.cli --n 1000 --workers 2 --check-config
-# Output: [CONFIGURATION ERROR] [DEC-01 / Gate G1 BLOCKED] Execution with p=2 workers requires written instructor permission...
+python -m src.cli --validate-fixtures
+```
+
+Testing DEC-01 permission verification for multi-worker execution (`p > 1` succeeds with `docs/decisions/DEC-01-instructor-permission.md` present; raises `PermissionError` if absent):
+```bash
+python -m src.cli --n 1000 --block-size 250 --workers 2 --check-config
 ```

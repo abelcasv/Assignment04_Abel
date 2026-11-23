@@ -36,6 +36,10 @@ from src.dask_matrix.kernels import (
 from src.dask_matrix.reduction import (
     build_binary_tree_reduction,
 )
+from src.dask_matrix.telemetry import (
+    TelemetryCollector,
+    extract_object_nbytes,
+)
 
 
 @dataclass
@@ -52,6 +56,8 @@ class DaskExecutionResult:
     elapsed_until_abort_s: Optional[float] = None
     object_nbytes: Optional[int] = None
     phase_breakdown_s: Optional[Dict[str, float]] = None
+    dask_managed_memory_mib: Optional[float] = None
+    worker_memory_stats: Optional[Dict[str, Dict[str, Any]]] = None
 
 
 class DistributedBlockMatmul:
@@ -60,6 +66,7 @@ class DistributedBlockMatmul:
     def __init__(self, client: Any, block_size: int = 250):
         self.client = client
         self.block_size = block_size
+        self._call_seq = 0
 
     def multiply(
         self,
@@ -89,8 +96,31 @@ class DistributedBlockMatmul:
         except ImportError as e:
             raise ImportError("dask.distributed is required for distributed execution.") from e
 
+        if not isinstance(a_matrix, np.ndarray) or not isinstance(b_matrix, np.ndarray):
+            raise TypeError(
+                f"Input matrices must be numpy.ndarray instances, got {type(a_matrix).__name__} and {type(b_matrix).__name__}."
+            )
+        if a_matrix.ndim != 2 or a_matrix.shape[0] != a_matrix.shape[1]:
+            raise ValueError(
+                f"Input matrix A must be a square 2D array, got shape {a_matrix.shape}."
+            )
+        if b_matrix.ndim != 2 or b_matrix.shape[0] != b_matrix.shape[1]:
+            raise ValueError(
+                f"Input matrix B must be a square 2D array, got shape {b_matrix.shape}."
+            )
+        if a_matrix.shape != b_matrix.shape:
+            raise ValueError(
+                f"Input matrix shape mismatch: A has shape {a_matrix.shape}, B has shape {b_matrix.shape}."
+            )
+        if a_matrix.shape[0] <= 0:
+            raise ValueError(
+                f"Input matrices must be non-empty, got shape {a_matrix.shape}."
+            )
+
         n = a_matrix.shape[0]
         nb = compute_grid_dimensions(n, self.block_size)
+        self._call_seq += 1
+        key_namespace = f"n{n}-c{self._call_seq}"
 
         # -------------------------------------------------------------
         # PRIMARY TIMING BOUNDARY START (t0)
@@ -169,7 +199,7 @@ class DistributedBlockMatmul:
             for i in range(nb):
                 for j in range(nb):
                     for k in range(nb):
-                        mult_key = f"matmul-r{repetition_id}-({i},{j},{k})"
+                        mult_key = f"matmul-{key_namespace}-r{repetition_id}-({i},{j},{k})"
                         fut = self.client.submit(
                             block_multiply,
                             a_scattered[i][k],
@@ -191,6 +221,7 @@ class DistributedBlockMatmul:
                         block_row=i,
                         block_col=j,
                         repetition_id=repetition_id,
+                        key_namespace=key_namespace,
                     )
                     c_block_futures[i][j] = red_future
                     all_final_futures.append(red_future)
@@ -205,7 +236,9 @@ class DistributedBlockMatmul:
             else:
                 remaining_timeout = max(0.1, sample_rem)
 
+            t_wait_start = time.perf_counter()
             done, not_done = wait(all_final_futures, timeout=remaining_timeout)
+            t_wait_end = time.perf_counter()
 
             if not_done:
                 # Timeout or budget limit occurred!
@@ -314,18 +347,31 @@ class DistributedBlockMatmul:
                     elapsed_until_abort_s=time_e2e_s,
                 )
 
-            # Estimate object nbytes tracked by Dask
+            # Estimate object nbytes and worker managed memory strictly AFTER t1
             object_nbytes = None
             try:
-                object_nbytes = int(self.client.nbytes())
+                object_nbytes = extract_object_nbytes(self.client.nbytes())
             except Exception:
                 pass
 
-            # Optional diagnostic breakdown
+            worker_memory_stats: Optional[Dict[str, Dict[str, Any]]] = None
+            dask_managed_memory_mib: Optional[float] = None
+            try:
+                raw_mem_stats = TelemetryCollector(self.client).get_worker_memory_stats()
+                if raw_mem_stats:
+                    worker_memory_stats = raw_mem_stats
+                    dask_managed_memory_mib = sum(
+                        w["managed_bytes"] for w in raw_mem_stats.values()
+                    ) / (1024.0 * 1024.0)
+            except Exception:
+                pass
+
+            # Optional driver-side wall-clock phase intervals (worker compute/transfer overlap internally)
             breakdown = {
                 "partitioning_s": t_part_end - t_part_start,
                 "scatter_s": t_scatter_end - t_scatter_start,
                 "graph_submission_s": t_graph_end - t_graph_start,
+                "wait_s": t_wait_end - t_wait_start,
                 "gather_s": t_gather_end - t_gather_start,
                 "assembly_s": t_assemble_end - t_assemble_start,
                 "checksum_s": t_check_end - t_check_start,
@@ -341,6 +387,8 @@ class DistributedBlockMatmul:
                 c_matrix=c_matrix,
                 object_nbytes=object_nbytes,
                 phase_breakdown_s=breakdown,
+                dask_managed_memory_mib=dask_managed_memory_mib,
+                worker_memory_stats=worker_memory_stats,
             )
 
         except DaskTimeoutError:

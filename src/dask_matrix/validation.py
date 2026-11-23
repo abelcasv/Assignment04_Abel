@@ -72,6 +72,20 @@ class MatrixValidator:
                 ),
             )
 
+        if c_computed.ndim == 0 or c_computed.size == 0:
+            return ValidationResult(
+                passed=False,
+                n=c_computed.shape[0] if c_computed.ndim > 0 else 0,
+                elements_compared=0,
+                elements_within_tolerance=0,
+                max_abs_diff=float("nan"),
+                max_rel_diff=float("nan"),
+                all_finite=False,
+                atol_used=self.atol,
+                rtol_used=self.rtol,
+                error_message="Empty or 0-D matrix cannot be validated.",
+            )
+
         n = c_computed.shape[0]
         elements_count = c_computed.size
 

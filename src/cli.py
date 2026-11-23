@@ -10,10 +10,10 @@ correctness checks, and benchmark campaigns:
 """
 
 import argparse
+import math
 import numbers
 import os
 import sys
-import uuid
 from typing import List, Optional
 
 # Ensure repository root is in sys.path when executed directly
@@ -21,30 +21,16 @@ REPO_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if REPO_ROOT_DIR not in sys.path:
     sys.path.insert(0, REPO_ROOT_DIR)
 
-import numpy as np
-
 from src.dask_matrix.campaign_runner import (
     CampaignRunner,
     CAMPAIGN_PLAN,
     validate_campaign_plan,
 )
 from src.dask_matrix.cluster_manager import (
-    ClusterManager,
     verify_multiworker_permission,
 )
-from src.dask_matrix.distributed_engine import DistributedBlockMatmul
 from src.dask_matrix.partitioning import compute_grid_dimensions
 from src.dask_matrix.pilot_runner import PilotRunner, PILOT_PLAN
-from src.dask_matrix.results_logger import MeasurementRecord, RawResultsLogger
-from src.dask_matrix.sidecar import generate_campaign_sidecar
-from src.dask_matrix.validation import MatrixValidator
-from src.dask_matrix.watchdog import ResourceWatchdog
-
-
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DATA_DIR = os.path.join(REPO_ROOT, "data")
-DENSE_DIR = os.path.join(DATA_DIR, "dense")
-VALIDATION_DIR = os.path.join(DATA_DIR, "validation")
 
 
 def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -69,7 +55,7 @@ def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "-p",
         type=int,
         default=1,
-        help="Number of worker processes p (default: 1). Must be a positive integer (p >= 1). Only p=1 is currently authorized; p > 1 requires written instructor permission under DEC-01.",
+        help="Number of worker processes p (default: 1). Must be a positive integer (p >= 1); p > 1 requires written authorization evidence in docs/decisions/ under DEC-01.",
     )
     parser.add_argument(
         "--repetitions",
@@ -107,19 +93,13 @@ def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def load_matrix_csv(filepath: str) -> np.ndarray:
-    """Loads a dense matrix from CSV into a C-order float64 array."""
-    if not os.path.isfile(filepath):
-        raise FileNotFoundError(
-            f"Input matrix not found at '{filepath}'. Run 'python scripts/generate_dataset.py' "
-            f"if working from a fresh repository clone (see data/README.md)."
-        )
-    # Fast CSV parsing via numpy
-    mat = np.loadtxt(filepath, delimiter=",", dtype=np.float64)
-    return np.ascontiguousarray(mat, dtype=np.float64)
-
-
-def validate_configuration(n: int, b: int, p: int) -> bool:
+def validate_configuration(
+    n: int,
+    b: int,
+    p: int,
+    repetitions: int = 5,
+    timeout: float = 120.0,
+) -> bool:
     """
     Validates input parameters against protocol constraints and Gate G1.
 
@@ -127,8 +107,8 @@ def validate_configuration(n: int, b: int, p: int) -> bool:
         True if configuration is valid.
 
     Raises:
-        TypeError: If n, b, or p are boolean or not integral numbers.
-        ValueError: If n <= 0, b <= 0, or p < 1.
+        TypeError: If n, b, p, repetitions are booleans/non-integral, or timeout is non-real.
+        ValueError: If n <= 0, b <= 0, p < 1, repetitions < 1, or timeout <= 0 / non-finite.
         PermissionError: If p > 1 and DEC-01 permission is missing.
     """
     if isinstance(n, bool) or not isinstance(n, numbers.Integral):
@@ -141,6 +121,17 @@ def validate_configuration(n: int, b: int, p: int) -> bool:
     if b <= 0:
         raise ValueError(f"Block size b must be positive, got {b}.")
 
+    if isinstance(repetitions, bool) or not isinstance(repetitions, numbers.Integral):
+        raise TypeError(f"Repetitions must be an integer, got {type(repetitions).__name__}.")
+    if repetitions < 1:
+        raise ValueError(f"Repetitions must be at least 1, got {repetitions}.")
+
+    if isinstance(timeout, bool) or not isinstance(timeout, numbers.Real):
+        raise TypeError(f"Timeout must be a finite positive number, got {type(timeout).__name__}.")
+    timeout_f = float(timeout)
+    if not math.isfinite(timeout_f) or timeout_f <= 0.0:
+        raise ValueError(f"Timeout must be finite and positive, got {timeout}.")
+
     # Central validation of Gate G1 / DEC-01 permission and process count
     verify_multiworker_permission(p)
 
@@ -149,6 +140,7 @@ def validate_configuration(n: int, b: int, p: int) -> bool:
     print(f"[CONFIG CHECK] Block size: {b} x {b}")
     print(f"[CONFIG CHECK] Grid dimension: {nb} x {nb} blocks ({nb**2} blocks total)")
     print(f"[CONFIG CHECK] Multiplication tasks: {nb**3}, Reduction additions: {nb**2 * (nb - 1)}")
+    print(f"[CONFIG CHECK] Repetitions: {repetitions}, Sample timeout: {timeout_f:.1f} s")
     print(f"[CONFIG CHECK] Worker count: p={p} (Permission verified).")
 
     return True
@@ -161,29 +153,50 @@ def main(argv: Optional[List[str]] = None) -> int:
         sys.stderr.write("[ERROR] Cannot specify both --pilot and --campaign simultaneously.\n")
         return 1
 
-    if args.campaign:
-        print("[CAMPAIGN MODE] Full Phase 8 Single-Worker Campaign selected.")
-        print("[CAMPAIGN MODE] Enforcing fixed campaign matrix: n in {250, 500, 750, 1000, 1500, 2000}, b=250, p=1, 36 runs.")
-
-        if args.workers != 1:
-            sys.stderr.write(f"[CAMPAIGN ERROR] Single-worker campaign strictly requires p=1. Got --workers={args.workers}.\n")
+    if args.validate_fixtures:
+        if args.pilot or args.campaign:
+            sys.stderr.write("[ERROR] Cannot combine --validate-fixtures with --pilot or --campaign.\n")
             return 1
+        from scripts.verify_correctness import run_correctness_checks
+        return 0 if run_correctness_checks() else 1
+
+    if args.campaign:
+        try:
+            verify_multiworker_permission(args.workers)
+        except Exception as e:
+            sys.stderr.write(f"[CAMPAIGN ERROR] {e}\n")
+            return 1
+
+        target_sizes = (250, 500, 750, 1000, 1500, 2000) if args.workers == 1 else (1000, 1500, 2000)
+        if args.workers == 1:
+            print("[CAMPAIGN MODE] Full Phase 8 Single-Worker Campaign selected.")
+            print("[CAMPAIGN MODE] Enforcing fixed campaign matrix: n in {250, 500, 750, 1000, 1500, 2000}, b=250, p=1, 36 runs.")
+        else:
+            print(f"[CAMPAIGN MODE] Strong-Scaling Multi-Worker Campaign selected (p={args.workers}, 1 physical host).")
+            print(f"[CAMPAIGN MODE] Enforcing fixed strong-scaling matrix: n in {{1000, 1500, 2000}}, b=250, p={args.workers}, 18 runs.")
+
         if args.block_size != 250:
             print(f"[CAMPAIGN WARNING] Argument --block-size={args.block_size} ignored. Campaign strictly uses b=250.")
 
         if args.check_config:
             print("[CAMPAIGN CONFIG CHECK] Validating static campaign requirements...")
-            validate_campaign_plan(CAMPAIGN_PLAN)
-            for n in (250, 500, 750, 1000, 1500, 2000):
-                validate_configuration(n, 250, 1)
-            print(f"[CAMPAIGN CONFIG CHECK] Plan contains {len(CAMPAIGN_PLAN)} planned executions.")
+            runner_preview = CampaignRunner(worker_count=args.workers, sizes=target_sizes)
+            validate_campaign_plan(
+                runner_preview.plan,
+                expected_sizes=target_sizes,
+                expected_block_size=250,
+                expected_worker_count=args.workers,
+            )
+            for n in target_sizes:
+                validate_configuration(n, 250, args.workers, repetitions=args.repetitions, timeout=args.timeout)
+            print(f"[CAMPAIGN CONFIG CHECK] Plan contains {len(runner_preview.plan)} planned executions.")
             print("[SUCCESS] Campaign configuration check passed. Exiting (--check-config).")
             return 0
 
         # Execute Campaign
-        runner = CampaignRunner()
+        runner = CampaignRunner(worker_count=args.workers, sizes=target_sizes) if args.workers != 1 else CampaignRunner()
         summary = runner.run()
-        if summary.get("failed_samples", 0) > 0 and summary.get("completed_samples", 0) == 0:
+        if summary.get("failed_samples", 0) > 0:
             return 1
         return 0
 
@@ -201,8 +214,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         if args.check_config:
             print("[PILOT CONFIG CHECK] Validating static pilot requirements...")
-            validate_configuration(250, 250, 1)
-            validate_configuration(500, 250, 1)
+            validate_configuration(250, 250, 1, repetitions=args.repetitions, timeout=args.timeout)
+            validate_configuration(500, 250, 1, repetitions=args.repetitions, timeout=args.timeout)
             print(f"[PILOT CONFIG CHECK] Plan contains {len(PILOT_PLAN)} immutable executions.")
             print("[SUCCESS] Pilot configuration check passed. Exiting (--check-config).")
             return 0
@@ -210,12 +223,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         # Execute Pilot
         runner = PilotRunner()
         summary = runner.run()
-        if summary.get("failed_samples", 0) > 0 and summary.get("completed_samples", 0) == 0:
+        if summary.get("failed_samples", 0) > 0:
             return 1
         return 0
 
     try:
-        validate_configuration(args.n, args.block_size, args.workers)
+        validate_configuration(
+            args.n,
+            args.block_size,
+            args.workers,
+            repetitions=args.repetitions,
+            timeout=args.timeout,
+        )
     except Exception as e:
         sys.stderr.write(f"\n[CONFIGURATION ERROR] {e}\n")
         return 1
@@ -226,6 +245,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     print("\n[NOTE] Execution of matrix calculations or worker clusters belongs to Phase 5–8.")
     print("Use --check-config for static verification in Phase 4.")
+    print("Use --validate-fixtures to run Phase 5 correctness verification.")
     print("Use --pilot to execute the bounded Phase 7 Pilot.")
     print("Use --campaign to execute the full Phase 8 Single-Worker Campaign.")
     return 0

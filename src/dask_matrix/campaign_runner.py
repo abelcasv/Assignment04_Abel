@@ -50,6 +50,7 @@ import numpy as np
 from src.dask_matrix.cluster_manager import (
     ClusterManager,
     ClusterTopology,
+    validate_cluster_topology,
     validate_injected_cluster_manager,
     verify_multiworker_permission,
 )
@@ -82,6 +83,8 @@ from src.dask_matrix.watchdog import (
     AGGREGATE_RSS_CEILING_MIB,
     HOST_AVAILABLE_RAM_FLOOR_MIB,
     WATCHDOG_SAMPLE_INTERVAL_S,
+    begin_sample_memory_window,
+    extract_sample_memory_metrics,
 )
 
 
@@ -132,15 +135,19 @@ def build_campaign_plan(
     repetitions: int = CAMPAIGN_REPETITIONS,
     randomize: bool = True,
     seed: int = CAMPAIGN_SEED,
+    sample_prefix: Optional[str] = None,
 ) -> Tuple[CampaignSampleSpec, ...]:
     """
-    Constructs the immutable 36-sample execution plan for the single-worker campaign.
+    Constructs the immutable execution plan for a Dask campaign configuration.
 
     Per protocol §8:
     - 1 warm-up (is_warmup=True, rep=0) per configuration.
-    - 5 measured repetitions (is_warmup=False, rep=1..5) per configuration.
+    - `repetitions` measured repetitions (is_warmup=False, rep=1..repetitions) per configuration.
     - If randomize=True, configuration order is shuffled with fixed seed 20261113.
     """
+    prefix = sample_prefix if sample_prefix is not None else (
+        "campaign" if worker_count == 1 else f"campaign_p{worker_count}"
+    )
     ordered_sizes = list(sizes)
     if randomize:
         rng = random.Random(seed)
@@ -153,7 +160,7 @@ def build_campaign_plan(
         # Warm-up sample (repetition=0)
         plan_list.append(
             CampaignSampleSpec(
-                sample_id=f"campaign_{n}_w0",
+                sample_id=f"{prefix}_{n}_w0",
                 n=n,
                 block_size=block_size,
                 worker_count=worker_count,
@@ -168,7 +175,7 @@ def build_campaign_plan(
         for rep in range(1, repetitions + 1):
             plan_list.append(
                 CampaignSampleSpec(
-                    sample_id=f"campaign_{n}_r{rep}",
+                    sample_id=f"{prefix}_{n}_r{rep}",
                     n=n,
                     block_size=block_size,
                     worker_count=worker_count,
@@ -207,13 +214,7 @@ def validate_campaign_plan(
     - Non-monotonic or invalid execution orders.
     - Invalid timeouts or budgets.
     """
-    # 1. Enforce DEC-01
-    if expected_worker_count > 1:
-        raise PermissionError(
-            f"[DEC-01 / Gate G1 BLOCKED] Multi-worker campaign execution (p={expected_worker_count}) "
-            "requires written instructor permission in docs/decisions/."
-        )
-
+    # 1. Enforce DEC-01 / Gate G1 via single authoritative permission check
     verify_multiworker_permission(expected_worker_count)
 
     # 2. Check total sample count
@@ -308,6 +309,12 @@ class CampaignRunner:
         host_floor_mib: float = HOST_AVAILABLE_RAM_FLOOR_MIB,
         watchdog_interval_s: float = WATCHDOG_SAMPLE_INTERVAL_S,
         plan: Optional[Tuple[CampaignSampleSpec, ...]] = None,
+        worker_count: int = CAMPAIGN_WORKER_COUNT,
+        sizes: Tuple[int, ...] = CAMPAIGN_SIZES,
+        block_size: int = CAMPAIGN_BLOCK_SIZE,
+        repetitions: int = CAMPAIGN_REPETITIONS,
+        campaign_name: Optional[str] = None,
+        sample_prefix: Optional[str] = None,
     ):
         self.data_dir = os.path.abspath(data_dir)
         self.results_csv = os.path.abspath(results_csv)
@@ -320,14 +327,41 @@ class CampaignRunner:
         self.rss_ceiling_mib = rss_ceiling_mib
         self.host_floor_mib = host_floor_mib
         self.watchdog_interval_s = watchdog_interval_s
+        self.worker_count = worker_count
+        self.sizes = tuple(sizes)
+        self.block_size = block_size
+        self.repetitions = repetitions
+        self.campaign_name = campaign_name or (
+            "Phase 8 Full Single-Worker Campaign"
+            if worker_count == 1
+            else f"Strong Scaling Local Multi-Worker Campaign (p={worker_count})"
+        )
+        self.sample_prefix = sample_prefix
 
         self.dense_dir = os.path.join(self.data_dir, "dense")
         self.val_dir = os.path.join(self.data_dir, "validation")
         self.sums_file = os.path.join(self.data_dir, "SHA256SUMS.txt")
 
-        validate_injected_cluster_manager(self.cluster_manager, expected_worker_count=CAMPAIGN_WORKER_COUNT)
+        validate_injected_cluster_manager(self.cluster_manager, expected_worker_count=self.worker_count)
 
-        self.plan = plan or CAMPAIGN_PLAN
+        if plan is not None:
+            self.plan = plan
+        elif (
+            self.sizes == CAMPAIGN_SIZES
+            and self.block_size == CAMPAIGN_BLOCK_SIZE
+            and self.worker_count == CAMPAIGN_WORKER_COUNT
+            and self.repetitions == CAMPAIGN_REPETITIONS
+            and self.sample_prefix is None
+        ):
+            self.plan = CAMPAIGN_PLAN
+        else:
+            self.plan = build_campaign_plan(
+                sizes=self.sizes,
+                block_size=self.block_size,
+                worker_count=self.worker_count,
+                repetitions=self.repetitions,
+                sample_prefix=self.sample_prefix,
+            )
 
     def _get_framework_version(self) -> str:
         """Retrieves distributed version string."""
@@ -380,29 +414,29 @@ class CampaignRunner:
         print(f"Startup Timeout:        {self.startup_timeout_s:.1f} s")
         print(f"Aggregate RSS Ceiling:  {self.rss_ceiling_mib:.1f} MiB (Watchdog)")
         print(f"Host RAM Floor:         {self.host_floor_mib:.1f} MiB (Watchdog)")
-        print(f"Worker Configuration:   p={CAMPAIGN_WORKER_COUNT}, threads={CAMPAIGN_WORKER_THREADS}, OpenBLAS={CAMPAIGN_BLAS_THREADS}")
-        print(f"Matrix Dimension Set:   n in {CAMPAIGN_SIZES}, block_size={CAMPAIGN_BLOCK_SIZE}")
+        print(f"Worker Configuration:   p={self.worker_count}, threads={CAMPAIGN_WORKER_THREADS}, OpenBLAS={CAMPAIGN_BLAS_THREADS}")
+        print(f"Matrix Dimension Set:   n in {self.sizes}, block_size={self.block_size}")
         print(f"Total Planned Samples:  {len(self.plan)}")
         print("================================================================================\n")
 
         # 1. Statically validate the campaign plan and enforce Gate G1
         validate_campaign_plan(
             plan=self.plan,
-            expected_sizes=CAMPAIGN_SIZES,
-            expected_block_size=CAMPAIGN_BLOCK_SIZE,
-            expected_worker_count=CAMPAIGN_WORKER_COUNT,
-            expected_repetitions=CAMPAIGN_REPETITIONS,
+            expected_sizes=self.sizes,
+            expected_block_size=self.block_size,
+            expected_worker_count=self.worker_count,
+            expected_repetitions=self.repetitions,
             sample_timeout_s=self.sample_timeout_s,
             session_budget_s=self.session_budget_s,
         )
 
-        validate_injected_cluster_manager(self.cluster_manager, expected_worker_count=CAMPAIGN_WORKER_COUNT)
+        validate_injected_cluster_manager(self.cluster_manager, expected_worker_count=self.worker_count)
 
         cm = self.cluster_manager
         owns_cluster = False
         if cm is None:
             cm = ClusterManager(
-                worker_count=CAMPAIGN_WORKER_COUNT,
+                worker_count=self.worker_count,
                 threads_per_worker=CAMPAIGN_WORKER_THREADS,
                 worker_memory_limit=None,
             )
@@ -446,11 +480,13 @@ class CampaignRunner:
                 inputs_cache[n] = (a_mat, b_mat, sha_a, sha_b, load_duration)
                 print(f"[INPUTS LOADED] n={n}: A={a_mat.shape}, B={b_mat.shape} (load time: {load_duration:.3f} s)")
 
-            # Load reference for n=250 validation
+            # Load reference for n=250 validation (verified against SHA256SUMS.txt)
             c_250_ref_path = os.path.join(self.val_dir, "reference", "C_250.csv")
             c_250_ref: Optional[np.ndarray] = None
             if os.path.isfile(c_250_ref_path):
-                c_250_ref = self._load_matrix(c_250_ref_path)
+                c_250_ref, _ = self._verify_and_load_matrix(
+                    c_250_ref_path, "validation/reference/C_250.csv", recorded_sums
+                )
                 print(f"[REFERENCE LOADED] Loaded C_250.csv for analytical validation: shape={c_250_ref.shape}")
 
             # 4. Check deadline before cluster startup
@@ -460,13 +496,14 @@ class CampaignRunner:
                 early_abort_reason = "Global session budget reached before cluster startup."
             else:
                 effective_startup_timeout = min(self.startup_timeout_s, rem_startup)
-                print(f"\n[CLUSTER] Starting LocalCluster (p=1, processes=True, threads=1, timeout={effective_startup_timeout:.1f}s)...")
-                topology = cm.start(timeout_s=effective_startup_timeout)
-                if hasattr(topology, "worker_count_observed") and topology.worker_count_observed != CAMPAIGN_WORKER_COUNT:
-                    raise ValueError(
-                        f"Cluster startup failed worker count verification: expected {CAMPAIGN_WORKER_COUNT} "
-                        f"observed workers, got {topology.worker_count_observed}."
-                    )
+                print(f"\n[CLUSTER] Starting LocalCluster (p={self.worker_count}, processes=True, threads=1, timeout={effective_startup_timeout:.1f}s)...")
+                started_topology = cm.start(timeout_s=effective_startup_timeout)
+                validate_cluster_topology(
+                    started_topology,
+                    expected_worker_count=self.worker_count,
+                    expected_threads_per_worker=CAMPAIGN_WORKER_THREADS,
+                )
+                topology = started_topology
                 print(f"[CLUSTER] Started successfully in {topology.cluster_startup_s:.2f} s.")
                 print(f"[CLUSTER] Observed PIDs: Driver={topology.driver_pid}, Scheduler={topology.scheduler_pid}, "
                       f"Nannies={topology.nanny_pids}, Workers={topology.worker_pids} (Total unique: {len(topology.all_pids)})")
@@ -482,7 +519,7 @@ class CampaignRunner:
                     global_deadline_s=deadline_mono,
                 )
                 watchdog.start()
-                engine = DistributedBlockMatmul(client=cm.client, block_size=CAMPAIGN_BLOCK_SIZE)
+                engine = DistributedBlockMatmul(client=cm.client, block_size=self.block_size)
 
             # 5. Execute Campaign Matrix Plan
             print(f"\n[ORCHESTRATOR] Beginning {len(self.plan)}-sample campaign execution sequence...")
@@ -491,7 +528,7 @@ class CampaignRunner:
                 now_mono = time.perf_counter()
                 rem_session = deadline_mono - now_mono
                 sample_ts = datetime.now(timezone.utc).isoformat()
-                a_mat, b_mat, sha_a, sha_b, load_dur = inputs_cache.get(spec.n, (None, None, "", "", 0.0))
+                a_mat, b_mat, sha_a, sha_b, load_dur = inputs_cache.get(spec.n, (None, None, "", "", None))
 
                 # Check 1: Early abort condition from previous step or deadline exhaustion
                 if early_abort_status is not None:
@@ -520,7 +557,7 @@ class CampaignRunner:
                         block_size=spec.block_size,
                         algorithm_variant=CAMPAIGN_ALGORITHM_VARIANT,
                         worker_count=spec.worker_count,
-                        process_count=len(topology.all_pids) if topology else 2,
+                        process_count=len(topology.all_pids) if topology else 1,
                         physical_machine_count=CAMPAIGN_PHYSICAL_MACHINE_COUNT,
                         worker_threads=CAMPAIGN_WORKER_THREADS,
                         openmp_threads=None,
@@ -575,7 +612,7 @@ class CampaignRunner:
                         block_size=spec.block_size,
                         algorithm_variant=CAMPAIGN_ALGORITHM_VARIANT,
                         worker_count=spec.worker_count,
-                        process_count=len(topology.all_pids) if topology else 2,
+                        process_count=len(topology.all_pids) if topology else 1,
                         physical_machine_count=CAMPAIGN_PHYSICAL_MACHINE_COUNT,
                         worker_threads=CAMPAIGN_WORKER_THREADS,
                         openmp_threads=None,
@@ -611,7 +648,12 @@ class CampaignRunner:
 
                 # Check 3: Watchdog Pre-Execution Check
                 if watchdog.breach_detected:
-                    early_abort_status = "NOT_RUN_AFTER_OOM" if watchdog.breach_type == "OUT_OF_MEMORY" else "FAILED"
+                    if watchdog.breach_type == "OUT_OF_MEMORY":
+                        early_abort_status = "NOT_RUN_AFTER_OOM"
+                    elif watchdog.breach_type in ("ABORTED_WATCHDOG", "ABORTED_BUDGET"):
+                        early_abort_status = watchdog.breach_type
+                    else:
+                        early_abort_status = "FAILED"
                     early_abort_reason = watchdog.breach_reason or "Watchdog breach prior to execution."
                     rec = MeasurementRecord(
                         run_id=run_id,
@@ -630,7 +672,7 @@ class CampaignRunner:
                         block_size=spec.block_size,
                         algorithm_variant=CAMPAIGN_ALGORITHM_VARIANT,
                         worker_count=spec.worker_count,
-                        process_count=len(topology.all_pids) if topology else 2,
+                        process_count=len(topology.all_pids) if topology else 1,
                         physical_machine_count=CAMPAIGN_PHYSICAL_MACHINE_COUNT,
                         worker_threads=CAMPAIGN_WORKER_THREADS,
                         openmp_threads=None,
@@ -667,6 +709,7 @@ class CampaignRunner:
                 # 6. Execute Multiplication Sample
                 cur_timeout = min(self.sample_timeout_s, max(0.1, rem_session))
                 print(f"[{spec.sample_id}] Running (n={spec.n}, rep={spec.repetition}, warmup={spec.is_warmup}, timeout={cur_timeout:.1f}s)...")
+                sample_start_idx = begin_sample_memory_window(watchdog)
 
                 res: DaskExecutionResult = engine.multiply(
                     a_matrix=a_mat,
@@ -681,9 +724,13 @@ class CampaignRunner:
                 final_status = res.status
                 final_error = res.error_reason
 
-                if res.status == "COMPLETED" and res.c_matrix is not None:
+                if res.status == "COMPLETED":
+                    if res.c_matrix is None:
+                        final_status = "FAILED"
+                        final_error = "Validation failure: Completed execution returned None c_matrix."
+                        print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
                     # Invariant 1: Finitude and Shape Check (all n)
-                    if res.c_matrix.shape != (spec.n, spec.n) or res.c_matrix.dtype != np.float64:
+                    elif res.c_matrix.shape != (spec.n, spec.n) or res.c_matrix.dtype != np.float64:
                         final_status = "FAILED"
                         final_error = f"Validation failure: Invalid shape/dtype ({res.c_matrix.shape}, {res.c_matrix.dtype})"
                         print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
@@ -706,7 +753,11 @@ class CampaignRunner:
                         # Invariant 3: Finitude and cross-repetition determinism for n >= 500
                         elif spec.n >= 500:
                             if not spec.is_warmup:
-                                if spec.repetition == 1:
+                                if res.checksum is None:
+                                    final_status = "FAILED"
+                                    final_error = "Validation failure: Completed execution returned None checksum."
+                                    print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
+                                elif spec.repetition == 1:
                                     # Repetition 1 establishes designated reference if completed successfully
                                     if final_status == "COMPLETED":
                                         reference_checksums[spec.n] = res.checksum
@@ -728,10 +779,10 @@ class CampaignRunner:
                                     else:
                                         print(f"[VALIDATION NOTICE] n={spec.n} rep={spec.repetition}: Designated reference rep=1 unavailable; cross-repetition comparison omitted.")
 
-                # Telemetry extraction
-                peak_rss = watchdog.peak_process_sum_mib
-                driver_rss = watchdog.samples[-1].rss_driver_mib if watchdog.samples else None
-                peak_ws = max(watchdog.peak_working_set_per_pid_mib.values()) if watchdog.peak_working_set_per_pid_mib else None
+                # Telemetry extraction (strictly per-sample window on real watchdog)
+                peak_rss, driver_rss, peak_ws = extract_sample_memory_metrics(
+                    watchdog, sample_start_idx
+                )
 
                 # Build record
                 rec = MeasurementRecord(
@@ -751,7 +802,7 @@ class CampaignRunner:
                     block_size=spec.block_size,
                     algorithm_variant=CAMPAIGN_ALGORITHM_VARIANT,
                     worker_count=spec.worker_count,
-                    process_count=len(topology.all_pids) if topology else 2,
+                    process_count=len(topology.all_pids) if topology else 1,
                     physical_machine_count=CAMPAIGN_PHYSICAL_MACHINE_COUNT,
                     worker_threads=CAMPAIGN_WORKER_THREADS,
                     openmp_threads=None,
@@ -773,7 +824,7 @@ class CampaignRunner:
                     rss_driver_mib=driver_rss,
                     rss_process_sum_peak_sampled_mib=peak_rss,
                     peak_working_set_mib=peak_ws,
-                    dask_managed_memory_mib=None,
+                    dask_managed_memory_mib=res.dask_managed_memory_mib,
                     checksum_sum=res.checksum,
                     status=final_status,
                     error_reason=final_error,
@@ -785,7 +836,8 @@ class CampaignRunner:
 
                 time_str = f"{res.time_e2e_s:.4f} s" if res.time_e2e_s is not None else "NULL"
                 chk_str = f"{res.checksum:.4f}" if res.checksum is not None else "NULL"
-                print(f"[{spec.sample_id}] Status: {final_status} | Time: {time_str} | Checksum: {chk_str} | Peak RSS: {peak_rss:.1f} MiB")
+                peak_str = f"{peak_rss:.1f} MiB" if peak_rss is not None else "NULL"
+                print(f"[{spec.sample_id}] Status: {final_status} | Time: {time_str} | Checksum: {chk_str} | Peak RSS: {peak_str}")
 
                 # Handle terminal abort states
                 if final_status == "OUT_OF_MEMORY":
@@ -834,7 +886,7 @@ class CampaignRunner:
             recorded_ids = {r.sample_id for r in execution_records}
             for spec in self.plan:
                 if spec.sample_id not in recorded_ids:
-                    a_mat, b_mat, sha_a, sha_b, load_dur = inputs_cache.get(spec.n, (None, None, "", "", 0.0))
+                    a_mat, b_mat, sha_a, sha_b, load_dur = inputs_cache.get(spec.n, (None, None, "", "", None))
                     rec = MeasurementRecord(
                         run_id=run_id,
                         sample_id=spec.sample_id,
@@ -852,7 +904,7 @@ class CampaignRunner:
                         block_size=spec.block_size,
                         algorithm_variant=CAMPAIGN_ALGORITHM_VARIANT,
                         worker_count=spec.worker_count,
-                        process_count=len(topology.all_pids) if topology else 2,
+                        process_count=len(topology.all_pids) if topology else 1,
                         physical_machine_count=CAMPAIGN_PHYSICAL_MACHINE_COUNT,
                         worker_threads=CAMPAIGN_WORKER_THREADS,
                         openmp_threads=None,
@@ -925,21 +977,30 @@ class CampaignRunner:
             completed_count = sum(1 for r in execution_records if r.status == "COMPLETED")
             failed_count = sum(1 for r in execution_records if r.status != "COMPLETED")
             sidecar_status = early_abort_status if early_abort_status is not None else (
-                "COMPLETED" if failed_count == 0 else "PARTIAL"
+                "COMPLETED" if failed_count == 0 else ("FAILED" if completed_count == 0 else "PARTIAL")
             )
+            sidecar_failure_reason = early_abort_reason
+            if sidecar_failure_reason is None and failed_count > 0:
+                sidecar_failure_reason = next(
+                    (r.error_reason for r in execution_records if r.status != "COMPLETED" and r.error_reason),
+                    f"{failed_count} of {len(execution_records)} samples did not complete.",
+                )
 
             try:
                 sidecar_path = generate_campaign_sidecar(
                     run_id=run_id,
-                    campaign_name="Phase 8 Full Single-Worker Campaign",
-                    worker_count=CAMPAIGN_WORKER_COUNT,
-                    block_size=CAMPAIGN_BLOCK_SIZE,
-                    n_values=list(CAMPAIGN_SIZES),
-                    repetitions=CAMPAIGN_REPETITIONS,
+                    campaign_name=self.campaign_name,
+                    worker_count=self.worker_count,
+                    block_size=self.block_size,
+                    n_values=list(self.sizes),
+                    repetitions=self.repetitions,
                     cluster_topology=sidecar_topology,
                     output_dir=self.metadata_dir,
                     status=sidecar_status,
-                    failure_reason=early_abort_reason,
+                    failure_reason=sidecar_failure_reason,
+                    timeout_per_sample_s=self.sample_timeout_s,
+                    aggregate_rss_ceiling_mib=self.rss_ceiling_mib,
+                    host_available_ram_floor_mib=self.host_floor_mib,
                 )
                 print(f"[SIDECAR] Generated metadata companion: {sidecar_path}")
             except Exception as se:

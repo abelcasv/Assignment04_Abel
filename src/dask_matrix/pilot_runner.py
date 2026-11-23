@@ -43,6 +43,7 @@ import numpy as np
 from src.dask_matrix.cluster_manager import (
     ClusterManager,
     ClusterTopology,
+    validate_cluster_topology,
     validate_injected_cluster_manager,
     verify_multiworker_permission,
 )
@@ -75,6 +76,8 @@ from src.dask_matrix.watchdog import (
     AGGREGATE_RSS_CEILING_MIB,
     HOST_AVAILABLE_RAM_FLOOR_MIB,
     WATCHDOG_SAMPLE_INTERVAL_S,
+    begin_sample_memory_window,
+    extract_sample_memory_metrics,
 )
 
 
@@ -273,14 +276,12 @@ class PilotRunner:
         validate_injected_cluster_manager(self.cluster_manager, expected_worker_count=PILOT_WORKER_COUNT)
 
         cm = self.cluster_manager
-        owns_cluster = False
         if cm is None:
             cm = ClusterManager(
                 worker_count=PILOT_WORKER_COUNT,
                 threads_per_worker=PILOT_WORKER_THREADS,
                 worker_memory_limit=None,
             )
-            owns_cluster = True
 
         topology: Optional[ClusterTopology] = None
         watchdog: Optional[ResourceWatchdog] = None
@@ -294,6 +295,8 @@ class PilotRunner:
         c_500_r1_checksum: Optional[float] = None
         early_abort_status: Optional[str] = None
         early_abort_reason: Optional[str] = None
+        timed_out_n: Optional[int] = None
+        timed_out_sample_id: Optional[str] = None
         inputs_cache: Dict[int, Tuple[np.ndarray, np.ndarray, str, str, float]] = {}
         sidecar_path: str = "unwritten"
 
@@ -316,11 +319,13 @@ class PilotRunner:
                 inputs_cache[n] = (a_mat, b_mat, sha_a, sha_b, load_duration)
                 print(f"[INPUTS LOADED] n={n}: A={a_mat.shape}, B={b_mat.shape} (load time: {load_duration:.3f} s)")
 
-            # Load reference for n=250 validation
+            # Load reference for n=250 validation (verified against SHA256SUMS.txt)
             c_250_ref_path = os.path.join(self.val_dir, "reference", "C_250.csv")
             c_250_ref: Optional[np.ndarray] = None
             if os.path.isfile(c_250_ref_path):
-                c_250_ref = self._load_matrix(c_250_ref_path)
+                c_250_ref, _ = self._verify_and_load_matrix(
+                    c_250_ref_path, "validation/reference/C_250.csv", recorded_sums
+                )
                 print(f"[REFERENCE LOADED] Loaded C_250.csv for analytical validation: shape={c_250_ref.shape}")
 
             # 4. Check deadline before cluster startup
@@ -331,12 +336,13 @@ class PilotRunner:
             else:
                 startup_timeout = min(60.0, rem_startup)
                 print(f"\n[CLUSTER] Starting LocalCluster (p=1, processes=True, threads=1, timeout={startup_timeout:.1f}s)...")
-                topology = cm.start(timeout_s=startup_timeout)
-                if hasattr(topology, "worker_count_observed") and topology.worker_count_observed != PILOT_WORKER_COUNT:
-                    raise ValueError(
-                        f"Cluster startup failed worker count verification: expected {PILOT_WORKER_COUNT} "
-                        f"observed workers, got {topology.worker_count_observed}."
-                    )
+                started_topology = cm.start(timeout_s=startup_timeout)
+                validate_cluster_topology(
+                    started_topology,
+                    expected_worker_count=PILOT_WORKER_COUNT,
+                    expected_threads_per_worker=PILOT_WORKER_THREADS,
+                )
+                topology = started_topology
                 print(f"[CLUSTER] Started successfully in {topology.cluster_startup_s:.2f} s.")
                 print(f"[CLUSTER] Observed PIDs: Driver={topology.driver_pid}, Scheduler={topology.scheduler_pid}, "
                       f"Nannies={topology.nanny_pids}, Workers={topology.worker_pids} (Total unique: {len(topology.all_pids)})")
@@ -366,6 +372,13 @@ class PilotRunner:
                 # Check 1: Early abort condition from previous step or deadline exhaustion
                 if early_abort_status is not None:
                     status_to_record = early_abort_status
+                    if early_abort_status == "NOT_RUN_AFTER_TIMEOUT":
+                        if timed_out_n is not None and spec.n == timed_out_n:
+                            abort_desc = f"Repetition omitted following timeout in sample {timed_out_sample_id} (n={spec.n}) per protocol §10.1."
+                        else:
+                            abort_desc = f"Skipped: pilot halted and cluster closed following timeout in sample {timed_out_sample_id} (n={timed_out_n}); cluster restart not authorized."
+                    else:
+                        abort_desc = early_abort_reason or "Aborted prior to sample execution."
                     rec = MeasurementRecord(
                         run_id=run_id,
                         sample_id=spec.sample_id,
@@ -383,7 +396,7 @@ class PilotRunner:
                         block_size=spec.block_size,
                         algorithm_variant=PILOT_ALGORITHM_VARIANT,
                         worker_count=spec.worker_count,
-                        process_count=len(topology.all_pids) if topology else 2,
+                        process_count=len(topology.all_pids) if topology else 1,
                         physical_machine_count=PILOT_PHYSICAL_MACHINE_COUNT,
                         worker_threads=PILOT_WORKER_THREADS,
                         openmp_threads=None,
@@ -408,13 +421,13 @@ class PilotRunner:
                         dask_managed_memory_mib=None,
                         checksum_sum=None,
                         status=status_to_record,
-                        error_reason=early_abort_reason,
+                        error_reason=abort_desc,
                         timeout_limit_s=self.sample_timeout_s,
                         elapsed_until_abort_s=None,
                     )
                     logger.log(rec)
                     execution_records.append(rec)
-                    print(f"[{spec.sample_id}] Skipped -> {status_to_record} ({early_abort_reason})")
+                    print(f"[{spec.sample_id}] Skipped -> {status_to_record} ({abort_desc})")
                     continue
 
                 # Check 2: Global Session Deadline Check
@@ -438,7 +451,7 @@ class PilotRunner:
                         block_size=spec.block_size,
                         algorithm_variant=PILOT_ALGORITHM_VARIANT,
                         worker_count=spec.worker_count,
-                        process_count=len(topology.all_pids) if topology else 2,
+                        process_count=len(topology.all_pids) if topology else 1,
                         physical_machine_count=PILOT_PHYSICAL_MACHINE_COUNT,
                         worker_threads=PILOT_WORKER_THREADS,
                         openmp_threads=None,
@@ -474,7 +487,12 @@ class PilotRunner:
 
                 # Check 3: Watchdog Pre-Execution Check
                 if watchdog.breach_detected:
-                    early_abort_status = "NOT_RUN_AFTER_OOM" if watchdog.breach_type == "OUT_OF_MEMORY" else "FAILED"
+                    if watchdog.breach_type == "OUT_OF_MEMORY":
+                        early_abort_status = "NOT_RUN_AFTER_OOM"
+                    elif watchdog.breach_type in ("ABORTED_WATCHDOG", "ABORTED_BUDGET"):
+                        early_abort_status = watchdog.breach_type
+                    else:
+                        early_abort_status = "FAILED"
                     early_abort_reason = watchdog.breach_reason or "Watchdog breach prior to execution."
                     rec = MeasurementRecord(
                         run_id=run_id,
@@ -493,7 +511,7 @@ class PilotRunner:
                         block_size=spec.block_size,
                         algorithm_variant=PILOT_ALGORITHM_VARIANT,
                         worker_count=spec.worker_count,
-                        process_count=len(topology.all_pids) if topology else 2,
+                        process_count=len(topology.all_pids) if topology else 1,
                         physical_machine_count=PILOT_PHYSICAL_MACHINE_COUNT,
                         worker_threads=PILOT_WORKER_THREADS,
                         openmp_threads=None,
@@ -530,6 +548,7 @@ class PilotRunner:
                 # 6. Execute Multiplication Sample
                 cur_timeout = min(self.sample_timeout_s, max(0.1, rem_session))
                 print(f"[{spec.sample_id}] Running (n={spec.n}, rep={spec.repetition}, warmup={spec.is_warmup}, timeout={cur_timeout:.1f}s)...")
+                sample_start_idx = begin_sample_memory_window(watchdog)
 
                 res: DaskExecutionResult = engine.multiply(
                     a_matrix=a_mat,
@@ -541,43 +560,60 @@ class PilotRunner:
                 )
 
                 # 7. Post-execution Numerical Correctness Validation (outside primary timer)
-                validation_passed = True
-                if res.status == "COMPLETED" and res.c_matrix is not None:
+                final_status = res.status
+                final_error = res.error_reason
+
+                if res.status == "COMPLETED":
+                    if res.c_matrix is None:
+                        final_status = "FAILED"
+                        final_error = "Validation failure: Completed execution returned None c_matrix."
+                        print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
                     # Invariant 1: Finitude and Shape Check (all n)
-                    if res.c_matrix.shape != (spec.n, spec.n) or res.c_matrix.dtype != np.float64:
-                        print(f"[VALIDATION FAIL] Invalid shape/dtype for {spec.sample_id}: shape={res.c_matrix.shape}, dtype={res.c_matrix.dtype}")
-                        validation_passed = False
+                    elif res.c_matrix.shape != (spec.n, spec.n) or res.c_matrix.dtype != np.float64:
+                        final_status = "FAILED"
+                        final_error = f"Validation failure: Invalid shape/dtype ({res.c_matrix.shape}, {res.c_matrix.dtype})"
+                        print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
                     elif not np.all(np.isfinite(res.c_matrix)):
-                        print(f"[VALIDATION FAIL] Non-finite values (NaN or Inf) detected in {spec.sample_id}")
-                        validation_passed = False
+                        final_status = "FAILED"
+                        final_error = "Validation failure: Non-finite values (NaN or Inf) detected."
+                        print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
+                    else:
+                        # Invariant 2: Ground-truth reference validation for n=250
+                        if spec.n == 250 and c_250_ref is not None:
+                            validator = MatrixValidator()
+                            v_res = validator.validate_matrices(res.c_matrix, c_250_ref)
+                            if not v_res.passed:
+                                final_status = "FAILED"
+                                final_error = f"Validation failure: {v_res.error_message}"
+                                print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
+                            else:
+                                print(f"[VALIDATION PASS] {spec.sample_id} verified against C_250.csv (|max_diff|={v_res.max_abs_diff:.2e})")
 
-                    # Invariant 2: Ground-truth reference validation for n=250
-                    if spec.n == 250 and c_250_ref is not None and validation_passed:
-                        validator = MatrixValidator()
-                        v_res = validator.validate_matrices(res.c_matrix, c_250_ref)
-                        if not v_res.passed:
-                            print(f"[VALIDATION FAIL] Elementwise check failed for {spec.sample_id}: {v_res.error_message}")
-                            validation_passed = False
-                        else:
-                            print(f"[VALIDATION PASS] {spec.sample_id} verified against C_250.csv (|max_diff|={v_res.max_abs_diff:.2e})")
+                        # Invariant 3: Finitude and cross-repetition determinism for n=500 (partial control per protocol §9.3/§10.5)
+                        elif spec.n == 500:
+                            print(f"[VALIDATION CONTROL] {spec.sample_id} finitude verified. Running cross-repetition determinism check (partial control per protocol §9.3).")
+                            if not spec.is_warmup:
+                                if res.checksum is None:
+                                    final_status = "FAILED"
+                                    final_error = "Validation failure: Completed execution returned None checksum."
+                                    print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
+                                elif spec.repetition == 1:
+                                    if final_status == "COMPLETED":
+                                        c_500_r1_checksum = res.checksum
+                                elif spec.repetition == 2:
+                                    if c_500_r1_checksum is not None:
+                                        chk_diff = abs(res.checksum - c_500_r1_checksum)
+                                        if chk_diff > 1e-6:
+                                            final_status = "FAILED"
+                                            final_error = f"Validation failure: Checksum divergence {chk_diff:.2e} > 1e-6 against rep=1 reference ({c_500_r1_checksum:.4f})."
+                                            print(f"[VALIDATION FAIL] {spec.sample_id}: {final_error}")
+                                        else:
+                                            print(f"[VALIDATION PASS] n=500 cross-repetition determinism confirmed: r1 and r2 checksums match (diff={chk_diff:.2e})")
 
-                    # Invariant 3: Finitude and cross-repetition determinism for n=500 (partial control per protocol §9.3/§10.5)
-                    elif spec.n == 500 and validation_passed:
-                        print(f"[VALIDATION CONTROL] {spec.sample_id} finitude verified. Running cross-repetition determinism check (partial control per protocol §9.3).")
-                        if spec.repetition == 1 and not spec.is_warmup:
-                            c_500_r1_checksum = res.checksum
-                        elif spec.repetition == 2 and not spec.is_warmup:
-                            if c_500_r1_checksum is not None:
-                                chk_diff = abs(res.checksum - c_500_r1_checksum)
-                                if chk_diff > 1e-6:
-                                    print(f"[VALIDATION WARNING] n=500 checksum mismatch between r1 ({c_500_r1_checksum}) and r2 ({res.checksum}): diff={chk_diff}")
-                                else:
-                                    print(f"[VALIDATION PASS] n=500 cross-repetition determinism confirmed: r1 and r2 checksums match (diff={chk_diff:.2e})")
-
-                # Telemetry extraction
-                peak_rss = watchdog.peak_process_sum_mib
-                driver_rss = watchdog.samples[-1].rss_driver_mib if watchdog.samples else None
-                peak_ws = max(watchdog.peak_working_set_per_pid_mib.values()) if watchdog.peak_working_set_per_pid_mib else None
+                # Telemetry extraction (strictly per-sample window on real watchdog)
+                peak_rss, driver_rss, peak_ws = extract_sample_memory_metrics(
+                    watchdog, sample_start_idx
+                )
 
                 # Build record
                 rec = MeasurementRecord(
@@ -597,7 +633,7 @@ class PilotRunner:
                     block_size=spec.block_size,
                     algorithm_variant=PILOT_ALGORITHM_VARIANT,
                     worker_count=spec.worker_count,
-                    process_count=len(topology.all_pids) if topology else 2,
+                    process_count=len(topology.all_pids) if topology else 1,
                     physical_machine_count=PILOT_PHYSICAL_MACHINE_COUNT,
                     worker_threads=PILOT_WORKER_THREADS,
                     openmp_threads=None,
@@ -621,8 +657,8 @@ class PilotRunner:
                     peak_working_set_mib=peak_ws,
                     dask_managed_memory_mib=None,
                     checksum_sum=res.checksum,
-                    status=res.status,
-                    error_reason=res.error_reason,
+                    status=final_status,
+                    error_reason=final_error,
                     timeout_limit_s=self.sample_timeout_s,
                     elapsed_until_abort_s=res.elapsed_until_abort_s,
                 )
@@ -631,18 +667,40 @@ class PilotRunner:
 
                 time_str = f"{res.time_e2e_s:.4f} s" if res.time_e2e_s is not None else "NULL"
                 chk_str = f"{res.checksum:.4f}" if res.checksum is not None else "NULL"
-                print(f"[{spec.sample_id}] Status: {res.status} | Time: {time_str} | Checksum: {chk_str} | Peak RSS: {peak_rss:.1f} MiB")
+                peak_str = f"{peak_rss:.1f} MiB" if peak_rss is not None else "NULL"
+                print(f"[{spec.sample_id}] Status: {final_status} | Time: {time_str} | Checksum: {chk_str} | Peak RSS: {peak_str}")
 
                 # Handle abort states
-                if res.status == "OUT_OF_MEMORY":
+                if final_status == "OUT_OF_MEMORY":
                     early_abort_status = "NOT_RUN_AFTER_OOM"
-                    early_abort_reason = f"OOM in sample {spec.sample_id}: {res.error_reason}"
-                elif res.status in ("ABORTED_WATCHDOG", "ABORTED_BUDGET"):
-                    early_abort_status = res.status
-                    early_abort_reason = res.error_reason
-                elif res.status == "TIMEOUT":
-                    # Mark remaining repetitions of this n as NOT_RUN_TIMEOUT
-                    print(f"[{spec.sample_id}] Sample timed out. Protocol stops repetitions for this dimension.")
+                    early_abort_reason = f"OOM in sample {spec.sample_id}: {final_error}"
+                elif final_status in ("ABORTED_WATCHDOG", "ABORTED_BUDGET"):
+                    early_abort_status = final_status
+                    early_abort_reason = final_error
+                elif final_status == "TIMEOUT":
+                    print(f"[{spec.sample_id}] Sample timed out (> {self.sample_timeout_s:.1f} s limit).")
+                    print(f"[{spec.sample_id}] Enforcing protocol §10.1: safely closing cluster and omitting remaining repetitions.")
+                    timed_out_n = spec.n
+                    timed_out_sample_id = spec.sample_id
+                    early_abort_status = "NOT_RUN_AFTER_TIMEOUT"
+                    early_abort_reason = (
+                        f"Cluster safely closed following timeout in sample {spec.sample_id} (n={spec.n}). "
+                        f"Subsequent repetitions of n={spec.n} omitted per protocol §10.1; "
+                        f"cluster restart not authorized."
+                    )
+                    if watchdog is not None:
+                        try:
+                            watchdog.stop()
+                        except Exception as we:
+                            print(f"[CLEANUP WARNING] Watchdog shutdown error: {we}")
+                        watchdog = None
+
+                    if cm is not None:
+                        try:
+                            cm.close(timeout_s=5.0)
+                        except Exception as ce:
+                            print(f"[CLEANUP WARNING] Cluster teardown error: {ce}")
+                        cm = None
 
         except Exception as e:
             print(f"\n[ORCHESTRATOR ERROR] Unexpected exception during pilot: {e}")
@@ -658,7 +716,7 @@ class PilotRunner:
             recorded_ids = {r.sample_id for r in execution_records}
             for spec in PILOT_PLAN:
                 if spec.sample_id not in recorded_ids:
-                    a_mat, b_mat, sha_a, sha_b, load_dur = inputs_cache.get(spec.n, (None, None, "", "", 0.0))
+                    a_mat, b_mat, sha_a, sha_b, load_dur = inputs_cache.get(spec.n, (None, None, "", "", None))
                     rec = MeasurementRecord(
                         run_id=run_id,
                         sample_id=spec.sample_id,
@@ -676,7 +734,7 @@ class PilotRunner:
                         block_size=spec.block_size,
                         algorithm_variant=PILOT_ALGORITHM_VARIANT,
                         worker_count=spec.worker_count,
-                        process_count=len(topology.all_pids) if topology else 2,
+                        process_count=len(topology.all_pids) if topology else 1,
                         physical_machine_count=PILOT_PHYSICAL_MACHINE_COUNT,
                         worker_threads=PILOT_WORKER_THREADS,
                         openmp_threads=None,
@@ -705,7 +763,10 @@ class PilotRunner:
                         timeout_limit_s=self.sample_timeout_s,
                         elapsed_until_abort_s=None,
                     )
-                    logger.log(rec)
+                    try:
+                        logger.log(rec)
+                    except Exception:
+                        pass
                     execution_records.append(rec)
 
         finally:
@@ -717,7 +778,7 @@ class PilotRunner:
                 except Exception as we:
                     print(f"[CLEANUP WARNING] Watchdog shutdown error: {we}")
 
-            if owns_cluster and cm is not None:
+            if cm is not None:
                 try:
                     cm.close(timeout_s=5.0)
                 except Exception as ce:
@@ -746,8 +807,14 @@ class PilotRunner:
             completed_count = sum(1 for r in execution_records if r.status == "COMPLETED")
             failed_count = sum(1 for r in execution_records if r.status != "COMPLETED")
             sidecar_status = early_abort_status if early_abort_status is not None else (
-                "COMPLETED" if failed_count == 0 else "PARTIAL"
+                "COMPLETED" if failed_count == 0 else ("FAILED" if completed_count == 0 else "PARTIAL")
             )
+            sidecar_failure_reason = early_abort_reason
+            if sidecar_failure_reason is None and failed_count > 0:
+                sidecar_failure_reason = next(
+                    (r.error_reason for r in execution_records if r.status != "COMPLETED" and r.error_reason),
+                    f"{failed_count} of {len(execution_records)} samples did not complete.",
+                )
 
             try:
                 sidecar_path = generate_campaign_sidecar(
@@ -760,7 +827,10 @@ class PilotRunner:
                     cluster_topology=sidecar_topology,
                     output_dir=self.metadata_dir,
                     status=sidecar_status,
-                    failure_reason=early_abort_reason,
+                    failure_reason=sidecar_failure_reason,
+                    timeout_per_sample_s=self.sample_timeout_s,
+                    aggregate_rss_ceiling_mib=self.rss_ceiling_mib,
+                    host_available_ram_floor_mib=self.host_floor_mib,
                 )
                 print(f"[SIDECAR] Generated metadata companion: {sidecar_path}")
             except Exception as se:

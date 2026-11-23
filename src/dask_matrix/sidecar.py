@@ -19,9 +19,8 @@ from typing import Any, Dict, List, Optional
 import psutil
 
 
-METADATA_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "results", "metadata")
-)
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+METADATA_DIR = os.path.join(REPO_ROOT, "results", "metadata")
 
 
 def get_git_commit_sha() -> str:
@@ -29,6 +28,7 @@ def get_git_commit_sha() -> str:
     try:
         out = subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
             stderr=subprocess.DEVNULL,
             text=True,
         ).strip()
@@ -97,6 +97,9 @@ def generate_campaign_sidecar(
     output_dir: str = METADATA_DIR,
     status: Optional[str] = None,
     failure_reason: Optional[str] = None,
+    timeout_per_sample_s: float = 120.0,
+    aggregate_rss_ceiling_mib: float = 2560.0,
+    host_available_ram_floor_mib: float = 1024.0,
 ) -> str:
     """
     Generates and saves the structured campaign sidecar JSON document.
@@ -112,6 +115,9 @@ def generate_campaign_sidecar(
         output_dir: Directory where the sidecar file is written.
         status: Optional campaign completion status (e.g. COMPLETED, FAILED, ABORTED_BUDGET).
         failure_reason: Optional failure description if campaign did not complete normally.
+        timeout_per_sample_s: Configured per-sample timeout limit in seconds.
+        aggregate_rss_ceiling_mib: Configured watchdog aggregate RSS ceiling in MiB.
+        host_available_ram_floor_mib: Configured watchdog host available RAM floor in MiB.
 
     Returns:
         Absolute filepath of the saved JSON sidecar.
@@ -143,14 +149,14 @@ def generate_campaign_sidecar(
             "block_size": block_size,
             "matrix_dimensions": n_values,
             "repetitions_per_dimension": repetitions,
-            "timeout_per_sample_s": 120.0,
-            "aggregate_rss_ceiling_mib": 2560.0,
-            "host_available_ram_floor_mib": 1024.0,
+            "timeout_per_sample_s": timeout_per_sample_s,
+            "aggregate_rss_ceiling_mib": aggregate_rss_ceiling_mib,
+            "host_available_ram_floor_mib": host_available_ram_floor_mib,
         },
         "cluster_topology": cluster_topology or {},
     }
 
-    with open(filepath, "w", encoding="utf-8") as f:
+    with open(filepath, "w", encoding="utf-8", newline="\n") as f:
         json.dump(sidecar_data, f, indent=2)
 
     return filepath

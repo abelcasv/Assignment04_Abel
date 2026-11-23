@@ -95,7 +95,7 @@ class RawResultsLogger:
         if not os.path.isfile(self.filepath) or os.path.getsize(self.filepath) == 0:
             header = [f.name for f in fields(MeasurementRecord)]
             with open(self.filepath, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
+                writer = csv.writer(f, lineterminator="\n")
                 writer.writerow(header)
 
     def log(self, record: MeasurementRecord) -> None:
@@ -116,9 +116,11 @@ class RawResultsLogger:
             elif isinstance(val, bool):
                 row.append("true" if val else "false")
             elif isinstance(val, float):
-                # Format floats cleanly without scientific notation unless very small
                 if val == 0.0:
                     row.append("0.0")
+                elif name == "checksum_sum":
+                    # Preserve full IEEE 754 float64 precision across all matrix dimensions
+                    row.append(f"{val:.17g}")
                 elif abs(val) < 1e-4 or abs(val) >= 1e8:
                     row.append(f"{val:.6e}")
                 else:
@@ -128,5 +130,5 @@ class RawResultsLogger:
 
         with self._lock:
             with open(self.filepath, "a", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
+                writer = csv.writer(f, lineterminator="\n")
                 writer.writerow(row)
