@@ -3,7 +3,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
-\usepackage[margin=2.1cm]{geometry}
+\usepackage[margin=1.8cm]{geometry}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -17,9 +17,11 @@
 
 \sisetup{detect-all,group-digits=false}
 \captionsetup{font=small,labelfont=bf}
-\setlist[itemize]{topsep=2pt,itemsep=2pt,parsep=0pt}
-\setlist[enumerate]{topsep=2pt,itemsep=2pt,parsep=0pt}
+\setlist[itemize]{topsep=1pt,itemsep=0pt,parsep=0pt}
+\setlist[enumerate]{topsep=1pt,itemsep=0pt,parsep=0pt}
 \setlength{\emergencystretch}{2em}
+\setlength{\intextsep}{6pt}
+\setlength{\textfloatsep}{8pt}
 
 \hypersetup{
     colorlinks=true,
@@ -50,34 +52,36 @@
 \vspace{-0.55cm}
 
 \begin{abstract}
-\noindent This study investigates the execution time scaling, process memory footprint, and framework coordination overhead of dense square matrix multiplication ($C = A \times B$) implemented with \textbf{Dask Distributed} on an asymmetric hybrid x86-64 processor. The implementation partitions dense IEEE~754 \texttt{binary64} (\texttt{float64}) matrices using a \textbf{2D block decomposition} ($b = 250$) and accumulates partial products across output blocks via a \textbf{pairwise binary-tree reduction}, executing local block multiplications with single-threaded OpenBLAS (\texttt{threads\_per\_worker = 1}, \texttt{OPENBLAS\_NUM\_THREADS = 1}). Across six problem dimensions ($n \in \{250, 500, 750, 1000, 1500, 2000\}$), each configuration executes one unmeasured warm-up and five measured repetitions within a strict pre-registered end-to-end timing boundary ($T_{\text{Dask\_E2E}}$), monitored by an external 2.5~GiB aggregate RSS watchdog. Empirical results demonstrate that Dask end-to-end latency scales from a median of \SI{0.0336}{\second} ($\text{IQR} = \SI{0.0032}{\second}$) at $n=250$ to \SI{7.4963}{\second} ($\text{IQR} = \SI{0.0952}{\second}$) at $n=2000$. At small dimensions ($n \le 500$), Dask Distributed exhibits substantially higher latency than native in-process C kernels, with Dask end-to-end duration at $n=250$ (\SI{0.0336}{\second}) being $5.6\times$ longer than the single-threaded A3 OpenMP kernel (\SI{0.0060}{\second}). This difference is consistent with the presence of end-to-end framework coordination costs (2D slicing, scattering, DAG submission, socket IPC, and driver assembly), although the individual contributions of these phases were not separately isolated. Conversely, at large dimensions ($n \ge 1000$), the observed scaling trend is consistent with increasing computational work reducing the relative impact of framework coordination costs, resulting in shorter observed end-to-end durations for Dask/OpenBLAS compared to unoptimized sequential C (\SI{7.1264}{\second} vs. \SI{0.9318}{\second} at $n=1000$, a contextual duration ratio of $7.65\times$), while remaining contextually longer than hardware-tailored cache-blocked AVX2 routines (\SI{4.7202}{\second} at $n=2000$). In compliance with official course requirement A4-11 and institutional policy DEC-01, local multi-worker execution ($p > 1$) was strictly \textbf{BLOCKED / NOT COMPLETED} due to the absence of written instructor authorization and the lack of accredited physical multi-node infrastructure. Consequently, single-worker execution ($p=1$) is explicitly presented as application latency with framework coordination, not as a strong-scaling sweep. Furthermore, assembly inspection of the Assignment 1 sequential benchmark reveals that its harness consumed only $c[0]$, highlighting a structural vulnerability in historical baselines where unconsumed elements were never validated; in this study, full-matrix checksum consumption ensures that all elements of the assembled array are accessed within the timed execution boundary, while numerical validation is explicitly established via element-by-element reference comparison at $n=250$ and checksum determinism across repetitions for $n \ge 500$.
+\noindent This study investigates the execution time scaling, local multi-worker strong scaling, process memory footprint, and framework coordination overhead of dense square matrix multiplication ($C = A \times B$) implemented with \textbf{Dask Distributed} on an asymmetric hybrid x86-64 processor (Intel Core i5-1335U: 2 Performance cores, 8 Efficient cores, \SI{16}{\giga\byte} RAM, Windows~11). The implementation partitions dense IEEE~754 \texttt{binary64} (\texttt{float64}) matrices using a \textbf{2D block decomposition} ($b = 250$) and accumulates partial products across output blocks via a \textbf{pairwise binary-tree reduction}, executing local block multiplications with single-threaded OpenBLAS (\texttt{threads\_per\_worker = 1}, \texttt{OPENBLAS\_NUM\_THREADS = 1}). All primary timed configurations execute one unmeasured warm-up and five measured repetitions within a strict pre-registered end-to-end timing boundary ($T_{\text{Dask\_E2E}}$), guarded by an external \SI{2.5}{\gibi\byte} aggregate RSS watchdog and \SI{120.0}{\second} per-sample timeout. In the frozen Phase~8 single-worker sweep ($p=1$, $n \in \{250, 500, 750, 1000, 1500, 2000\}$), Dask end-to-end latency scales from a median of \SI{0.0336}{\second} ($\text{IQR} = \SI{0.0032}{\second}$) at $n=250$ to \SI{7.4963}{\second} ($\text{IQR} = \SI{0.0952}{\second}$) at $n=2000$; at $n \le 500$ Dask is substantially slower than optimized in-process C kernels ($5.6\times$ slower than A3 OpenMP $p=1$ at $n=250$, $\text{CTR}=0.18\times$), overtakes A1 Java by $n=500$ ($1.67\times$) and untiled A3 $i\text{-}k\text{-}j$ at $n=1000$ ($1.06\times$, $2.18\times$ at $n=2000$), yet remains slower than cache-blocked AVX2 routines through $n=2000$ (\SI{4.7202}{\second}, $\text{CTR}=0.63\times$). Following confirmed instructor authorization under revised policy DEC-01 (\nolinkurl{docs/decisions/DEC-01-instructor-permission.md}, 2026-11-23), an authorized \textbf{local single-host multi-worker strong-scaling campaign} ($p \in \{1, 2, 4, 8, 10\}$, $n \in \{1000, 1500, 2000\}$, $b=250$, 1 physical host, $1+p$ OS processes---five consecutive single-$p$ sub-campaigns inside one 26.6-min invocation) and a separate $n=1000$ diagnostic pass were executed without altering the frozen 48-row historical dataset. Positive median strong-scaling speedup emerges \textbf{only} at $n=2000, p=2$ (median \SI{9.5635}{\second} vs.\ \SI{11.6333}{\second} in the preceding Nov~23 $p=1$ sub-campaign, $S_{\text{dist}}=1.22\times$, $E_{\text{dist}}=60.8\%$, with overlapping per-repetition ranges). Scaling beyond two workers ($p \in \{4, 8, 10\}$) induces sharp slowdown across all sizes ($S(4)=0.21{\times}\text{--}0.77{\times}$, $S(8)=0.12{\times}\text{--}0.34{\times}$) and hits the \SI{120.0}{\second} timeout at $p=10$ (\SI{131.92}{\second} on $n=1500$ rep~5). Separate diagnostics rule out RAM exhaustion, disk spilling (\SI{0}{\byte}; peak RSS $\le \SI{1468.1}{\mebi\byte} \ll \SI{2560}{\mebi\byte}$), and BLAS compute ($\le \SI{0.335}{\second}$ aggregate), measuring \texttt{scatter\_s} + \texttt{wait\_s} + \texttt{gather\_s} at 96.11\% of wall-clock latency at $p=8$ (98.70\% including \texttt{graph\_submission\_s}), consistent with architectural hypotheses of centralized scheduler contention, Windows loopback TCP IPC overhead, and hybrid P/E-core scheduling. All multi-worker runs are strictly labeled as single-host process emulation; genuine multi-node execution remains \textbf{BLOCKED / NOT AVAILABLE}. Finally, assembly inspection of Assignment~1 confirms its harness consumed only $c[0]$, whereas Assignment~4 consumes the full assembled matrix via checksum inside $T_{\text{Dask\_E2E}}$ and validates element-by-element accuracy at $n=250$ ($\max|\Delta|=1.137\times 10^{-13}\ll 10^{-9}$) and $C_{500}$ ($p=2$ vs.\ $p=1$, $\max|\Delta|=0.0$).
 \end{abstract}
 
 \section{Introduction}
-Dense matrix multiplication ($C = A \times B$) is a fundamental computational kernel across numerical linear algebra, scientific computing, and big data analytics. For two dense square matrices $A, B \in \mathbb{R}^{n \times n}$, the multiplication operation computes $n^2$ inner products:
+Dense matrix multiplication ($C = A \times B$) is a fundamental computational kernel across numerical linear algebra, scientific computing, and big data analytics~\cite{Golub2013}. For two dense square matrices $A, B \in \mathbb{R}^{n \times n}$, the multiplication operation computes $n^2$ inner products:
 \begin{equation}
 C_{i, j} = \sum_{k=0}^{n-1} A_{i, k} \cdot B_{k, j}
 \end{equation}
-This operation exhibits an arithmetic complexity of $2n^3$ floating-point operations (FLOPs) and an in-memory storage footprint of $3 \times 8n^2 = 24n^2\text{ bytes}$ under IEEE~754 \texttt{binary64} representation. Because arithmetic work grows cubically ($\mathcal{O}(n^3)$) while data volume grows quadratically ($\mathcal{O}(n^2)$), dense matrix multiplication provides high computational intensity ($\mathcal{O}(n)$ FLOPs per byte transferred), making it a canonical benchmark for evaluating parallel and distributed computing frameworks.
+This operation exhibits an arithmetic complexity of $2n^3$ floating-point operations (FLOPs) and a minimal structural storage footprint of $3 \times 8n^2 = 24n^2\text{ bytes}$ across the three operands under IEEE~754 \texttt{binary64} representation~\cite{IEEE754} (an architectural lower bound on matrix storage rather than measured loopback IPC payload). Because arithmetic work grows cubically ($\mathcal{O}(n^3)$) while data volume grows quadratically ($\mathcal{O}(n^2)$), dense matrix multiplication provides high computational intensity ($\mathcal{O}(n)$ FLOPs per byte transferred), making it a canonical benchmark for evaluating parallel and distributed computing frameworks.
 
-In distributed computing frameworks such as Dask Distributed, Apache Spark, or Ray, computational tasks are scheduled across independent processes or networked worker nodes. However, distributed execution introduces non-trivial system overheads, including Directed Acyclic Graph (DAG) construction, task serialization over TCP/IP sockets, inter-process communication (IPC), intermediate reduction synchronization, and driver-side gathering.
+In distributed computing frameworks such as MapReduce-style dataflow engines~\cite{Dean2008}, Dask Distributed~\cite{Rocklin2015}, Apache Spark, or Ray, computational tasks are scheduled across independent processes or networked worker nodes. However, distributed execution introduces non-trivial system overheads, including Directed Acyclic Graph (DAG) construction, task serialization over TCP/IP sockets, inter-process communication (IPC), intermediate reduction synchronization, and driver-side gathering.
 
 \subsection{Research Question and Hypotheses}
-In accordance with the official course specification~\cite{CourseSpec}, this study investigates:
+In accordance with the official course specification~\cite{CourseSpec}, this study investigates the broader assignment objective:
 \begin{quote}
-\textit{How does the end-to-end wall-clock performance, process memory footprint, and scheduling/communication overhead of a distributed 2D block matrix multiplication implementation using Dask Distributed scale as matrix dimensions increase on a single heterogeneous host, and how does it compare contextually with validated sequential (Assignment 1) and shared-memory parallel OpenMP (Assignment 3) implementations on identical logical input matrices and numeric types?}
+\textit{How does the end-to-end wall-clock performance, process memory footprint, and scheduling/communication overhead of a distributed 2D block matrix multiplication implementation using Dask Distributed scale as matrix dimensions increase and across worker topologies, and how does it compare contextually with sequential (Assignment~1) and shared-memory parallel OpenMP (Assignment~3) implementations across matching dimensions and IEEE~754 \texttt{binary64} numeric types?}
 \end{quote}
 
-The investigation tests four formal hypotheses:
+\noindent\textit{Experimental Scope Note (DEC-01):} During Phases~1--10, Gate~G1~/~DEC-01 restricted execution to $p=1$ pending instructor permission, producing the frozen 48-row single-worker dataset (lines~1--49 of \nolinkurl{results/raw/raw_measurements.csv}, preserved byte-for-byte). Following confirmed instructor authorization on 2026-11-23 (\nolinkurl{docs/decisions/DEC-01-instructor-permission.md}), a controlled $p=1$ vs.\ $p=2$ pilot, a 90-row local single-host multi-worker strong-scaling campaign ($p \in \{1, 2, 4, 8, 10\}$, $n \in \{1000, 1500, 2000\}$, $b=250$, \texttt{physical\_machine\_count=1}), and a separate $n=1000$ diagnostic pass were executed on the same host. Because no physical multi-node cluster was available, \textbf{multi-node execution remains BLOCKED / NOT AVAILABLE}, and all multi-worker runs are strictly labeled as \textbf{local single-host multi-process execution}. Contextual comparisons in Section~4.2 pair A4 medians against frozen historical summaries (\nolinkurl{data/baselines/a1_summary.csv}, \nolinkurl{data/baselines/a3_parallel_results_summary.csv}), while A4's deterministic dataset (\nolinkurl{data/dense/}) and runtime adapters provide identical inputs for optional local re-execution.
+
+The investigation evaluates four formal hypotheses:
 \begin{itemize}
-    \item \textbf{$H_1$ (Framework Overhead Dominance at Small Dimensions):} For small problem sizes ($n \le 500$), the fixed overhead of graph submission, task serialization, local socket IPC, and driver gathering will exceed raw arithmetic execution time, causing Dask end-to-end latency to be substantially higher than in-process compiled sequential C kernels ($R_{\text{seq}} = T_{\text{seq}} / T_{\text{Dask}} < 1$).
-    \item \textbf{$H_2$ (Asymptotic Computational Domination Hypothesis):} As problem dimension grows ($n \ge 1000$), increasing computational work is hypothesized to reduce the relative impact of fixed framework coordination costs, resulting in shorter observed end-to-end execution times for the Dask/OpenBLAS system compared to unoptimized sequential baseline implementations within the tested scope.
-    \item \textbf{$H_3$ (Worker Saturation \& Scaling Limits):} On a shared-memory host, increasing worker process counts beyond physical performance cores would induce memory bandwidth contention and core-heterogeneity imbalance (retained as a theoretical hypothesis for future research; unverified empirically because multi-worker execution with $p > 1$ was BLOCKED under DEC-01).
-    \item \textbf{$H_4$ (Contextual Cross-System Comparison):} Runtime differences between Dask/NumPy and C/OpenMP baselines reflect fundamentally non-equivalent runtime backends, memory representations, and timing boundaries, representing a cross-system contextual comparison rather than an isolated algorithmic speedup.
+    \item \textbf{$H_1$ (Framework Overhead at Small Dimensions, $n \le 500$):} For small problem sizes ($n \le 500$), graph submission, task serialization, local socket IPC, and driver gathering are hypothesized to exceed raw arithmetic execution time, causing Dask end-to-end latency to be higher than native in-process C kernels ($\text{CTR} = \tilde{T}_{\text{baseline}} / \tilde{T}_{\text{Dask}} < 1$). Empirically \textbf{partially supported (baseline-dependent)}.
+    \item \textbf{$H_2$ (Larger-Dimension Scaling, Crossovers \& Multi-Worker Granularity, $n \ge 1000$):} Evaluates whether cubic computational growth ($2n^3$) amortizes fixed framework coordination costs both against native baselines at $p=1$ and across multiple local workers ($p > 1$). Empirically \textbf{partially supported}: baseline-specific crossovers occur at $p=1$, and positive strong-scaling speedup occurs \textbf{only} at $n=2000, p=2$ ($S_{\text{dist}}=1.22\times$, $E_{\text{dist}}=60.8\%$).
+    \item \textbf{$H_3$ (Worker Saturation \& Scaling Limits on Asymmetric Single Host):} On a shared-memory hybrid host, increasing worker process counts beyond physical performance cores induces coordination contention and core-heterogeneity imbalance, yielding non-monotonic scaling limits. Empirically \textbf{supported}: $p \in \{4, 8, 10\}$ degrades steeply across all sizes and triggers a \SI{120.0}{\second} timeout at $p=10$.
+    \item \textbf{$H_4$ (Contextual Cross-System Comparison):} Runtime differences between Dask/NumPy~\cite{VanDerWalt2011} and C/OpenMP baselines reflect fundamentally non-equivalent runtime backends, memory representations, and timing boundaries, representing a cross-system contextual comparison rather than an isolated algorithmic speedup. Empirically \textbf{supported}.
 \end{itemize}
 
 \section{Background and Related Work}
-Distributed dense matrix multiplication has been extensively studied in high-performance computing. Classical approaches include Cannon's algorithm (1969), Fox's algorithm (1993), and the Scalable Universal Matrix Multiplication Algorithm (SUMMA) by Van de Geijn and Watts (1997)~\cite{VanDeGeijn1997}, which forms the mathematical core of ScaLAPACK's \texttt{PDGEMM}. These algorithms coordinate cyclic shifts and broadcasts across a 2D toroidal processor grid.
+Distributed dense matrix multiplication has been extensively studied in high-performance computing. Classical approaches include Cannon's algorithm (1969), Fox's algorithm (1987), and the Scalable Universal Matrix Multiplication Algorithm (SUMMA) by Van de Geijn and Watts (1997)~\cite{VanDeGeijn1997}, which forms the mathematical core of ScaLAPACK's \texttt{PDGEMM}. These algorithms coordinate cyclic shifts and broadcasts across a 2D toroidal processor grid.
 
 In dynamic task-graph frameworks such as Dask Distributed~\cite{Rocklin2015}, computations are represented as dynamic directed acyclic graphs. Slicing matrices into $b \times b$ blocks produces $N_b^3$ independent multiplication tasks ($P_{i, j, k} = A_{i, k} \times B_{k, j}$). Combining partial products for each output block $(i, j)$ via a pairwise binary-tree reduction restricts dependency depth to $\lceil \log_2 N_b \rceil$ stages, allowing asynchronous execution and decentralized task placement without requiring rigid lock-step synchronization.
 
@@ -97,7 +101,7 @@ C_{i, j} = \sum_{k=0}^{N_b - 1} A_{i, k} \times B_{k, j}
 \begin{equation}
 \text{block\_rows} = \min(b, n - i \cdot b), \quad \text{block\_cols} = \min(b, n - j \cdot b)
 \end{equation}
-Zero-padding is strictly prohibited by \texttt{SPEC.md} §5.1 to preserve exact computational complexity. Every slice is forced into contiguous C-order layout (\texttt{np.ascontiguousarray}).
+Zero-padding is strictly prohibited by \texttt{SPEC.md} \S5.1 to preserve exact computational complexity. Every slice is forced into contiguous C-order layout (\texttt{np.ascontiguousarray}).
 
 \noindent\textbf{Binary-Tree Reduction Graph:} For each output block $(i, j)$, the $N_b$ partial product futures are reduced hierarchically:
 \begin{itemize}
@@ -117,91 +121,97 @@ This aggregation ensures that all elements of the assembled array are accessed w
 \subsection{Hardware Environment and Process Mapping}
 Experiments were conducted on a dedicated host running Windows 11 Home 64-bit (Build 10.0.26300):
 \begin{itemize}
-    \item \textbf{CPU:} Intel Core i5-1335U (Raptor Lake, 10 physical cores: 2 Performance cores with Hyper-Threading, 8 Efficient cores; 12 logical processors). Base clock \SI{1.30}{\giga\hertz}, max turbo boost up to \SI{4.60}{\giga\hertz}. Shared L3 cache \SI{12}{\mega\byte}.
-    \item \textbf{RAM:} \SI{16.0}{\giga\byte} physical DDR4 RAM (\SI{16009.14}{\mebi\byte}, \SI{3.68}{\gibi\byte} available at idle baseline).
-    \item \textbf{Software Stack:} Python 3.14.0 (MSC v.1944 64-bit AMD64), Dask Distributed 2026.8.0, NumPy 2.5.4, SciPy OpenBLAS 0.3.34.106.0 (\texttt{libscipy\_openblas64}), psutil 7.2.2. C baselines compiled with MinGW-W64 GCC 13.2.0.
+    \item \textbf{CPU:} Intel Core i5-1335U (Raptor Lake, 10 physical cores: 2 Performance cores with Hyper-Threading, 8 Efficient cores; 12 logical processors). Base clock \SI{1.30}{\giga\hertz}, max turbo boost up to \SI{4.60}{\giga\hertz}. L1d \SI{48}{\kilo\byte} (P-core) / \SI{32}{\kilo\byte} (E-core); shared L3 \SI{12}{\mega\byte}.
+    \item \textbf{RAM:} \SI{16.0}{\giga\byte} physical DDR4 RAM (\SI{16009.14}{\mebi\byte} / \SI{15.63}{\gibi\byte}; \SI{3.60}{\gibi\byte} [\SI{3688.8}{\mebi\byte}] available at idle baseline).
+    \item \textbf{Software Stack:} Python 3.14.0 (MSC v.1944 64-bit AMD64), Dask Distributed 2026.8.0, NumPy 2.5.4, SciPy OpenBLAS 0.3.34.106.0 (\texttt{libscipy\_openblas64}), psutil 7.2.2, Matplotlib 3.11.2, threadpoolctl 3.7.0. C baselines compiled with MinGW-W64 GCC 13.2.0.
 \end{itemize}
 
-\noindent\textbf{Process Hierarchy and Concurrency Isolation:} Dask was launched via \texttt{LocalCluster(processes=True, n\_workers=1, threads\_per\_worker=1)}:
+\noindent\textbf{Process Hierarchy and Concurrency Isolation:} Dask was launched via \texttt{LocalCluster} (\texttt{processes=True}, \texttt{n\_workers=}$p$, \texttt{threads\_per\_worker=1}) on a single Windows~11 host:
 \begin{itemize}
-    \item \textbf{Driver Process (PID 33560):} Houses the \texttt{Client}, \texttt{LocalCluster} orchestrator, in-process \texttt{Scheduler}, and in-process \texttt{Nanny} management controller.
-    \item \textbf{Worker Process (PID 21036):} Dedicated child OS process executing task computation.
-    \item \textbf{Operating System Processes:} Exactly 2 distinct OS PIDs.
-    \item \textbf{Threading Isolation:} Pinned to 1 Dask worker thread (\texttt{threads\_per\_worker = 1}) and 1 OpenBLAS internal thread via environment variables (\texttt{OPENBLAS\_NUM\_THREADS=1}, \texttt{MKL\_NUM\_THREADS=1}, \texttt{OMP\_NUM\_THREADS=1}), verified dynamically via \texttt{threadpoolctl}.
+    \item \textbf{Driver Process (1 PID):} Houses the \texttt{Client}, \texttt{LocalCluster} orchestrator, in-process \texttt{Scheduler}, and in-process \texttt{Nanny} management controller (\texttt{nanny\_pids = []} after PID deduplication; in the frozen Nov~14 sidecar \texttt{nanny\_pids: [21036]} delegated to the worker PID).
+    \item \textbf{Worker Processes ($p$ distinct child OS PIDs):} Independent child Python processes executing OpenBLAS block kernels.
+    \item \textbf{Observed OS Process Mapping:} Across all executed topologies, Windows \texttt{LocalCluster} (\texttt{processes=True}) spawned exactly \textbf{$1+p$ distinct OS PIDs}: 2 ($p=1$), 3 ($p=2$), 5 ($p=4$), 9 ($p=8$), and 11 ($p=10$), all on \texttt{physical\_machine\_count = 1}.
+    \item \textbf{Threading Isolation:} Pinned to 1 Dask worker thread (\texttt{threads\_per\_worker = 1}) and 1 OpenBLAS internal thread via environment variables (\texttt{OPENBLAS\_NUM\_THREADS=1}, \texttt{MKL\_NUM\_THREADS=1}, \texttt{OMP\_NUM\_THREADS=1}, \texttt{NUMEXPR\_NUM\_THREADS=1}), verified dynamically via \texttt{threadpoolctl}.
 \end{itemize}
 
 \subsection{Administrative Status and Strong Scaling Compliance (DEC-01)}
-Official course requirement A4-11 states that local multi-worker execution ($p > 1$) requires explicit instructor permission. Under project decision DEC-01:
+Official course requirement A4-11 states that local multi-worker execution ($p > 1$) requires explicit instructor permission and clear environment labeling. Under decision DEC-01 (\nolinkurl{docs/decisions/DEC-01-instructor-permission.md}):
 \begin{itemize}
-    \item Single-worker execution ($p = 1$) was authorized and completed.
-    \item Multi-worker execution ($p \in \{2, 4, 8, 10\}$) was strictly \textbf{BLOCKED} pending written instructor approval.
-    \item No accredited multi-node cluster or university HPC environment was available.
-    \item \textbf{Strong Scaling Status:} Strong scaling across multiple worker processes is formally recorded as \textbf{BLOCKED / NOT COMPLETED}. Single-worker execution ($p=1$) measures single-worker application latency and framework coordination; \textbf{$p=1$ does NOT constitute strong scaling}. Under no circumstances is $p=1$ presented as satisfying the strong-scaling requirement.
-    \item \textbf{Network Isolation Disclosure:} In compliance with A4-12, this study explicitly states that inter-machine network costs were not isolated because all communication was confined to local IPC on a single host.
+    \item \textbf{Historical Phase~1--10 Restriction (Preserved):} Single-worker execution ($p = 1$) completed in Phase~8 while $p > 1$ remained blocked pending permission; its 48 raw rows remain preserved byte-for-byte in lines~1--49 of \nolinkurl{results/raw/raw_measurements.csv}.
+    \item \textbf{Revised Authorization (2026-11-23):} Following confirmed instructor permission for local multi-worker experimentation, Gate~G1 natively authorized local single-host multi-process strong scaling across $p \in \{1, 2, 4, 8, 10\}$ on \texttt{physical\_machine\_count = 1} under all operational safeguards (\SI{2.5}{\gibi\byte} RSS cap, \SI{1.0}{\gibi\byte} host RAM floor, \SI{120.0}{\second} timeout).
+    \item \textbf{Strong Scaling Status (Single-Host Local):} \textbf{COMPLETED (Local Single-Host Multi-Process)} for $p \in \{1, 2, 4, 8\}$ across $n \in \{1000, 1500, 2000\}$, with $p = 10$ empirically hitting the \SI{120.0}{\second} timeout on $n=1500$ rep~5 (\SI{131.92}{\second}; 4/5 completed, 1 \texttt{TIMEOUT}, 12 \texttt{NOT\_RUN\_AFTER\_TIMEOUT}).
+    \item \textbf{Multi-Node \& Network Isolation Disclosure (A4-12):} No accredited multi-node cluster or university HPC environment was available; genuine \textbf{multi-node execution remains BLOCKED / NOT AVAILABLE}, and inter-machine network costs were not isolated because all IPC traversed Windows loopback (\texttt{127.0.0.1}).
+    \item \textbf{Optional Weak Scaling (DEC-07):} Equal-work dense cubic weak scaling obeys $W(n)=2n^3 \implies n(p)=n(1)\cdot p^{1/3}$ and remains \textbf{deferred} because single-host strong scaling already saturates beyond $p=2$ and times out at $p=10$.
 \end{itemize}
 
 \subsection{Timing Contracts and Resource Safeguards}
 Adhering to COM-05 and COM-06, the primary timing boundary $T_{\text{Dask\_E2E}}$ is defined monotonically ($t_0 \to t_1$) via \texttt{time.perf\_counter()}:
 \begin{enumerate}
-    \item \textbf{Excluded Setup:} Cluster startup (\SI{4.816}{\second}) and CSV matrix loading from disk (\SI{0.161}{\second} at $n=250$ to \SI{6.478}{\second} at $n=2000$) are measured outside $T_{\text{Dask\_E2E}}$.
+    \item \textbf{Excluded Setup:} Cluster startup (\SI{4.816}{\second} in Phase~8; \SIrange{3.11}{20.80}{\second} across strong-scaling $p \in \{1, 2, 4, 8, 10\}$) and CSV matrix loading from disk (\SI{0.161}{\second} at $n=250$ to \SI{6.478}{\second} at $n=2000$ in Phase~8) are measured outside $T_{\text{Dask\_E2E}}$.
     \item \textbf{Start Event ($t_0$):} Sampled immediately before 2D block partitioning of $A$ and $B$.
     \item \textbf{Included Operations:} 2D slicing, scattering blocks to worker memory, graph submission, task execution, gathering output blocks to driver memory, dense array assembly, and full-matrix checksum consumption.
     \item \textbf{Stop Event ($t_1$):} Sampled immediately after checksum materialization.
     \item \textbf{Excluded Verification:} Element-by-element numerical validation occurs after $t_1$.
 \end{enumerate}
 
-\noindent\textbf{Operational Resource Safeguards:} A background \texttt{ResourceWatchdog} thread sampled active cluster PIDs every \SI{250}{\milli\second}, enforcing an aggregate process RSS ceiling of \SI{2.5}{\gibi\byte} (\SI{2560.0}{\mebi\byte}) and a host available RAM floor of \SI{1.0}{\gibi\byte} (\SI{1024.0}{\mebi\byte}). Each sample was governed by a \SI{120.0}{\second} timeout within a \SI{10.0}{\hour} campaign planning envelope.
+\noindent\textbf{Operational Resource Safeguards:} A background \texttt{ResourceWatchdog} thread sampled active cluster PIDs every \SI{250}{\milli\second}, enforcing an aggregate process RSS ceiling of \SI{2.5}{\gibi\byte} (\SI{2560.0}{\mebi\byte}, \texttt{OUT\_OF\_MEMORY}) and a host available RAM floor of \SI{1.0}{\gibi\byte} (\SI{1024.0}{\mebi\byte}, \texttt{ABORTED\_WATCHDOG}). Each sample was governed by a \SI{120.0}{\second} timeout within a \SI{10.0}{\hour} campaign planning envelope (\texttt{ABORTED\_BUDGET}).
 
 \subsection{Numerical Correctness and Tolerances}
-Prior to benchmarking, the implementation passed six correctness fixtures, including Identity, Zero, an integer $4 \times 4$ test fixture with known exact output, and an edge-block truncation fixture ($n=4, b=3$). The independent element-wise validation at $n=250$ used a tolerance-based acceptance criterion ($\text{atol}=10^{-9}, \text{rtol}=10^{-12}$) against an independent calculated numerical reference matrix (\texttt{data/validation/reference/C\_250.csv}, SHA-256 \texttt{598E9A9FC8F0...}), generated via \texttt{scripts/generate\_dataset.py}'s \texttt{generate\_reference\_product()} using an independent standard-library Python scalar loop without BLAS or Dask. The observed maximum absolute difference was $0.0$ across all $62,500$ elements, indicating exact numerical equality for this validation run. For larger dimensions ($n \ge 500$), checksum determinism was confirmed by verifying zero checksum divergence ($\Delta = 0.0$) across all five repetitions. Note that checksum determinism confirms identical aggregate checksum values across repetitions, but does not prove that complete output matrices are identical (as distinct matrices may produce the same aggregate sum) and is not equivalent to independent element-by-element reference validation.
+Prior to benchmarking, the implementation passed six correctness fixtures, including Identity, Zero, an integer $4 \times 4$ test fixture with known exact output, and an edge-block truncation fixture ($n=4, b=3$). Element-by-element acceptance required:
+\begin{equation}
+|C_{\text{test}}[i, j] - C_{\text{ref}}[i, j]| \le \text{atol} + \text{rtol} \cdot |C_{\text{ref}}[i, j]|
+\end{equation}
+The independent element-wise validation at $n=250$ applied tolerances $\text{atol}=10^{-9}, \text{rtol}=10^{-12}$ against an independent calculated numerical reference matrix (\nolinkurl{data/validation/reference/C_250.csv}, SHA-256 \texttt{598E9A9FC8F0...}), generated via \nolinkurl{scripts/generate_dataset.py} using \texttt{generate\_reference\_product()} with a standard-library Python scalar loop (no BLAS or Dask). Across all $62,500$ elements, OpenBLAS \texttt{np.matmul} ($b=250$) achieved $\max|\Delta| = 1.137 \times 10^{-13}$ ($\max_{\text{rel}} = 1.896 \times 10^{-15}$, consistent with AVX2/FMA vs.\ scalar summation rounding; \nolinkurl{scripts/verify_correctness.py} with $b=100$ achieved $1.208 \times 10^{-13}$, $\max_{\text{rel}} = 2.015 \times 10^{-15}$), four orders of magnitude within tolerance, while exact $0.0$ difference held for the $4 \times 4$ integer fixtures, the $n=250$ aggregate checksum difference, and the $C_{500}$ ($p=2$ vs.\ $p=1$) cross-validation. For larger dimensions ($n \ge 500$), checksum determinism was confirmed by verifying zero checksum divergence ($\Delta = 0.0$) across all completed repetitions. Checksum determinism confirms identical aggregate sums across repetitions, but does not prove complete matrix equality or replace element-wise reference validation.
 
 \section{Empirical Results}
 
-The certified dataset comprises 48 raw records in \texttt{results/raw/raw\_measurements.csv} (SHA-256 \texttt{3D9D721343...}):
+The certified dataset comprises \textbf{138 raw records} in \nolinkurl{results/raw/raw_measurements.csv} (full SHA-256 \texttt{831A731D9D...}), preserving the 48 original Phase~7--8 rows byte-for-byte in lines~1--49 (prefix SHA-256 \texttt{3D9D721343...}):
 \begin{itemize}
-    \item \textbf{Pilot 1 (6 rows):} Executed with a \SI{30.0}{\second} startup timeout; all 6 samples failed due to cold cluster initialization timeout on Windows.
-    \item \textbf{Pilot 2 (6 rows):} Executed with startup timeout raised to \SI{60.0}{\second}; all 6 samples completed successfully (2 warm-ups, 4 measured).
-    \item \textbf{Full Campaign (36 rows):} Evaluated $n \in \{250, 500, 750, 1000, 1500, 2000\}$ with 1 warm-up and 5 measured repetitions per size in randomized order (seed \texttt{20261113}). All 36 samples completed with 0 timeouts and 0 memory breaches.
+    \item \textbf{Pilot 1 (6 rows, Phase~7):} Executed with a \SI{30.0}{\second} startup timeout; all 6 samples failed due to cold cluster initialization timeout on Windows.
+    \item \textbf{Pilot 2 (6 rows, Phase~7):} Executed with startup timeout raised to \SI{60.0}{\second}; all 6 samples completed successfully (2 warm-ups, 4 measured).
+    \item \textbf{Phase~8 Campaign (36 rows, $p=1$):} Evaluated $n \in \{250, 500, 750, 1000, 1500, 2000\}$ (\texttt{largest\_attempted\_n} = 2000, \texttt{largest\_completed\_n} = 2000) with 1 warm-up and 5 measured repetitions per size in randomized order (seed \texttt{20261113}). All 36 samples completed with 0 timeouts and 0 memory breaches.
+    \item \textbf{Authorized Local Multi-Worker Strong-Scaling Campaign (90 rows, DEC-01, 2026-11-23):} Evaluated $p \in \{1, 2, 4, 8, 10\}$ across $n \in \{1000, 1500, 2000\}$ ($b=250$, 1 warm-up + 5 measured repetitions, seed \texttt{20261113}, 1 physical host, $1+p$ OS PIDs), indexed in \nolinkurl{results/metadata/strong_scaling_manifest.json}. All 72 samples for $p \in \{1, 2, 4, 8\}$ completed (18/18 each); at $p=10$, 5 samples completed ($n=1500$ warm-up + reps~1--4), rep~5 timed out at \SI{131.92}{\second} ($> \SI{120.0}{\second}$), and 12 samples recorded \texttt{NOT\_RUN\_AFTER\_TIMEOUT}.
+    \item \textbf{Auxiliary Verification \& Diagnostic Artifacts:} A controlled $p=1$ vs.\ $p=2$ pilot (\nolinkurl{results/metadata/pilot_multiworker_p1_p2.json}) and a separate $n=1000$ task-stream/phase diagnostic pass (\nolinkurl{results/metadata/strong_scaling_diagnostics.json}) were saved outside \nolinkurl{raw_measurements.csv}.
 \end{itemize}
 
 \subsection{Single-Worker Dask Execution Time Scaling (\texorpdfstring{$p = 1, b = 250$}{p=1, b=250})}
 Table~\ref{tab:dask_summary} summarizes descriptive statistics across the 30 non-warmup campaign samples.
 
-\begin{table}[htbp]
+\begin{table}[hbp]
 \centering
 \small
-\caption{Dask Distributed Single-Worker Execution Statistics ($p=1, b=250$, OpenBLAS=1).}
+\caption{Dask Distributed Single-Worker Execution Statistics ($p=1, b=250$, $N=5$ measured repetitions per size, OpenBLAS=1, single-host Windows~11).}
 \label{tab:dask_summary}
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{rccrrrrrrr}
 \toprule
 $n$ & $N_b$ & Tasks & Mean $T_{\text{E2E}}$ (s) & Median $T_{\text{E2E}}$ (s) & Std Dev (s) & IQR (s) & Min (s) & Max (s) & Peak RSS (MiB) \\
 \midrule
-250  & 1 & 1   & 0.0349 & \textbf{0.0336} & 0.0057 & 0.0032 & 0.0300 & 0.0446 & 796.7 \\
-500  & 2 & 12  & 0.2024 & \textbf{0.2062} & 0.0270 & 0.0160 & 0.1621 & 0.2362 & 796.7 \\
-750  & 3 & 45  & 0.4480 & \textbf{0.4449} & 0.0521 & 0.0733 & 0.3798 & 0.5063 & 310.5 \\
-1000 & 4 & 112 & 0.9804 & \textbf{0.9318} & 0.1140 & 0.1228 & 0.8695 & 1.1528 & 525.6 \\
-1500 & 6 & 396 & 3.2977 & \textbf{3.0392} & 0.5197 & 0.7948 & 2.7801 & 3.9470 & 522.3 \\
-2000 & 8 & 960 & 7.3006 & \textbf{7.4963} & 0.6079 & 0.0952 & 6.2562 & 7.8475 & 775.2 \\
+250  & 1 & 1   & 0.0349 & \textbf{0.0336} & 0.0057 & 0.0032 & 0.0300 & 0.0446 & 796.7* \\
+500  & 2 & 12  & 0.2024 & \textbf{0.2062} & 0.0270 & 0.0160 & 0.1621 & 0.2362 & 796.7* \\
+750  & 3 & 45  & 0.4480 & \textbf{0.4449} & 0.0521 & 0.0733 & 0.3798 & 0.5063 & 327.3 \\
+1000 & 4 & 112 & 0.9804 & \textbf{0.9318} & 0.1140 & 0.1228 & 0.8695 & 1.1528 & 525.6* \\
+1500 & 6 & 396 & 3.2977 & \textbf{3.0392} & 0.5197 & 0.7948 & 2.7801 & 3.9470 & 525.6 \\
+2000 & 8 & 960 & 7.3006 & \textbf{7.4963} & 0.6079 & 0.0952 & 6.2562 & 7.8475 & 796.7 \\
 \bottomrule
 \end{tabular}%
 }
 \vspace{0.1cm}
 
-\noindent{\footnotesize\textit{Note on memory telemetry:} In the campaign runner implementation (\texttt{campaign\_runner.py}), the \texttt{ResourceWatchdog} is initialized once at cluster startup and maintains a cumulative running peak (\texttt{peak\_process\_sum\_mib}) across the persistent cluster session without resetting between samples. The campaign executed dimensions in randomized order ($750 \to 1500 \to 1000 \to 2000 \to 250 \to 500$). Consequently, the recorded \texttt{rss\_process\_sum\_peak\_sampled\_mib} represents the cumulative session high-water mark up to that sample; the values for $n=250$ and $n=500$ (\SI{796.7}{\mebi\byte}) reflect the persistent session high-water mark established during the preceding $n=2000$ execution, rather than an isolated per-sample memory footprint.}
+\noindent{\footnotesize\textit{Note on memory \& telemetry completeness:} (1)~Peak RSS reports the maximum \texttt{rss\_process\_sum\_peak\_sampled\_mib} across $N=5$ repetitions (on Windows, \texttt{psutil} \texttt{.rss} measures Working Set, and \texttt{peak\_working\_set\_mib} in the frozen CSV records max 250~ms-sampled single-PID RSS rather than OS \texttt{PeakWorkingSetSize}). Because the frozen campaign ran before \texttt{ResourceWatchdog} added per-sample windowing (\texttt{mark\_sample\_start()}/\texttt{get\_window\_metrics()}), $n=1000$ (\SI{525.6}{\mebi\byte}; driver RSS \SIrange{244.7}{260.4}{\mebi\byte}) inherits the $n=1500$ peak, and $n \in \{250, 500\}$ (\SI{796.7}{\mebi\byte}; driver RSS \SIrange{246.8}{253.5}{\mebi\byte}) inherit the $n=2000$ peak in the randomized sequence ($750 \to 1500 \to 1000 \to 2000 \to 250 \to 500$), whereas Pilot~2's isolated runs recorded \SI{162.9}{\mebi\byte} ($n=250$) and \SI{178.3}{\mebi\byte} ($n=500$). (2)~Online validation checked full \texttt{float64} checksums ($\text{atol}=10^{-6}$), while \texttt{results\_logger.py} formatted \texttt{checksum\_sum} $\ge 10^8$ ($n \ge 750$) as \texttt{:.6e} in the frozen CSV (remediated to \texttt{\%.17g} for future runs). (3)~In the frozen CSV, \texttt{object\_nbytes} is \texttt{NULL} because \texttt{Client.nbytes()} returns a dict, which raised \texttt{TypeError} in \texttt{int(self.client.nbytes())} (remediated via \texttt{extract\_object\_nbytes()}); directional payload columns and \texttt{dask\_managed\_memory\_mib} remain \texttt{NULL} to avoid perturbing $T_{\text{Dask\_E2E}}$. (4)~\texttt{phase\_breakdown\_s} is populated in memory on \texttt{DaskExecutionResult} rather than serialized to the 44-column CSV schema.}
 \end{table}
 
-\begin{figure}[htbp]
+\begin{figure}[hbp]
 \centering
-\includegraphics[width=0.95\linewidth]{plot_dask_p1_scaling.png}
-\caption{Single-worker Dask Distributed runtime scaling ($p=1, b=250$, OpenBLAS=1) on linear scale with IQR error bars (left) and log-log scale against theoretical $\mathcal{O}(n^3)$ reference anchored at $n=1000$ (right).}
+\includegraphics[width=0.84\linewidth]{plot_dask_p1_scaling.png}
+\caption{Single-worker Dask Distributed runtime scaling ($p=1, b=250$, $N=5$ repetitions, OpenBLAS=1, single-host Windows~11) on linear scale with IQR error bars (left) and log-log scale against theoretical $\mathcal{O}(n^3)$ reference anchored at $n=1000$ (right).}
 \label{fig:dask_scaling}
 \end{figure}
 
-\noindent\textbf{Scaling Rate Analysis:} Between $n=250$ and $n=500$ ($2\times$ dimension increase), median runtime increases by $6.13\times$ (\SI{0.0336}{\second} $\to$ \SI{0.2062}{\second}), well below the theoretical cubic scaling factor of $2^3 = 8\times$. This reflects the substantial fixed cost of cluster scatter and checksum overhead at $n=250$. Between $n=1000$ and $n=2000$, median runtime increases by $8.04\times$ (\SI{0.9318}{\second} $\to$ \SI{7.4963}{\second}), closely matching the theoretical cubic scaling ratio ($2^3 = 8.0\times$), which is consistent with cubic computational work growing faster than quadratic task coordination costs, although individual phase durations were not separately measured.
+\noindent\textbf{Scaling Rate Analysis:} Between $n=250$ and $n=500$ ($2\times$ dimension increase), median runtime increases by $6.13\times$ (\SI{0.0336}{\second} $\to$ \SI{0.2062}{\second}), well below the theoretical cubic scaling factor of $2^3 = 8\times$. This reflects the substantial fixed cost of cluster scatter and checksum overhead at $n=250$. Between $n=1000$ and $n=2000$, median runtime increases by $8.05\times$ (\SI{0.9318}{\second} $\to$ \SI{7.4963}{\second}), closely matching the theoretical cubic scaling ratio ($2^3 = 8.0\times$), which is consistent with cubic computational work growing faster than quadratic task coordination costs, although individual phase durations were not separately measured.
 
 \subsection{Contextual Baseline Comparisons}
-The distributed Dask implementation was compared contextually against certified baselines from Assignment 1 and Assignment 3 on identical logical input matrices. The \textbf{Contextual Duration Ratio} is defined as:
+The distributed Dask implementation was compared contextually against frozen historical baseline summaries from Assignment~1 (\nolinkurl{data/baselines/a1_summary.csv}) and Assignment~3 (\nolinkurl{data/baselines/a3_parallel_results_summary.csv}) across matching dimensions and IEEE~754 \texttt{binary64} numeric types (originally measured on each prior assignment's own random inputs; A4's common \nolinkurl{data/dense/} matrices and runtime adapters enable optional local re-execution on identical inputs). The \textbf{Contextual Duration Ratio} is defined as:
 \begin{equation}
 \text{CTR} = \frac{\tilde{T}_{\text{baseline}}}{\tilde{T}_{\text{Dask\_p1}}}
 \end{equation}
@@ -248,100 +258,177 @@ $n$ & Baseline Method & Baseline Med (s) & Dask $p=1$ Med (s) & CTR & Interpreta
 \end{tabular}%
 }
 \vspace{1ex}
-\noindent\footnotesize\textbf{Note on Contextual Baseline Selection:} Table~\ref{tab:contextual_comparison} presents 22 representative comparisons selected from the 34 records in the underlying contextual baseline CSV (\nolinkurl{results/analysis/contextual_baseline_comparison.csv}). For each of the six dimensions, it omits the alternative single-threaded representation \texttt{A3\_Seq\_ikj} in favor of \texttt{A3\_OpenMP\_ikj\_p1}, and \texttt{A3\_OpenMP\_tiled\_b32\_p1} in favor of \texttt{A3\_Seq\_tiled\_b32}. These are equivalent algorithm/configuration variants rather than exact duplicate measurements; their measured execution times differ slightly due to OpenMP runtime library call overhead versus direct function invocation. The selection avoids redundant presentation of the same algorithmic kernels while preserving all distinct computational methods across the tested dimensions.
+\noindent\footnotesize\textbf{Contextual Baseline Selection \& Multi-Threaded OpenMP Context:} Table~\ref{tab:contextual_comparison} shows 22 single-thread ($t=1$) comparisons from the 34 rows in \nolinkurl{contextual_baseline_comparison.csv} matching A4's Phase~8 $p=1$ concurrency (omitting duplicate kernel variants \texttt{A3\_Seq\_ikj} and \texttt{A3\_OpenMP\_tiled\_b32\_p1}). Separately, \nolinkurl{data/baselines/a3_parallel_results_summary.csv} records multi-threaded $t=10$ OpenMP medians: untiled \texttt{omp\_ikj} runs in \SIrange{0.0019}{1.5443}{\second} ($n=250\dots2000$; $4.85{\times}$ shorter than Phase~8 Dask $p=1$ and $6.19{\times}$ shorter than Dask's best local multi-worker result \SI{9.5635}{\second} at $p=2$) and \texttt{omp\_tiled\_b32} runs in \SIrange{0.0016}{0.6250}{\second} ($11.99{\times}$ shorter than Dask $p=1$ and $15.30{\times}$ shorter than Dask $p=2$), illustrating zero-copy shared-memory threading versus multi-process distributed orchestration.
+\end{table}
+
+\clearpage
+\begin{figure}[hbp]
+\centering
+\includegraphics[width=0.76\linewidth]{plot_contextual_comparison.png}
+\caption{Contextual runtime comparison across four representative single-worker and single-thread implementations ($N=5$ repetitions, single-host Windows~11) on a logarithmic scale. Timing boundaries differ: A4 measures Dask E2E; A1/A3 measure in-process kernel multiplication.}
+\label{fig:contextual_comparison}
+\end{figure}
+
+\subsection{Local Multi-Worker Strong Scaling (\texorpdfstring{$p \in \{1, 2, 4, 8, 10\}, n \in \{1000, 1500, 2000\}$}{p in {1, 2, 4, 8, 10}, n in {1000, 1500, 2000}})}
+
+\noindent\textbf{Controlled Pilot Verification ($p=1$ vs.\ $p=2$):} Prior to the scaling sweep, \nolinkurl{scripts/run_strong_scaling.py} \texttt{-{}-pilot-p1-p2} (\nolinkurl{results/metadata/pilot_multiworker_p1_p2.json}) verified real multi-worker execution on \texttt{physical\_machine\_count = 1}: $p=1$ spawned 2 unique OS PIDs (\texttt{driver=20292}, \texttt{worker=11588}) and $p=2$ spawned 3 unique OS PIDs (\texttt{driver=20292}, \texttt{workers=[26936, 12804]}). Element-wise validation at $n=250$ yielded $\max|\Delta| = 1.137 \times 10^{-13} \ll 10^{-9}$ for both topologies, and full 250{,}000-element cross-validation of $C_{500}$ ($p=2$ vs.\ $p=1$) confirmed exact equality ($\max|\Delta|=0.0$). At $p=2, n=500$, the 12 DAG tasks split across both workers (\texttt{6+6}, \texttt{6+6}, \texttt{5+7}), emitting real \texttt{transfer} actions (\SIrange{0.0215}{0.0345}{\second}, 2--7 incoming transfers) and closing with 0 surviving worker PIDs.
+
+\noindent\textbf{Strong-Scaling Speedup and Efficiency:} To avoid mixing cross-day baselines against the frozen Nov~14 rows (\SI{0.9318}{\second} / \SI{3.0392}{\second} / \SI{7.4963}{\second}), \nolinkurl{scripts/run_strong_scaling.py} executed five consecutive single-$p$ sub-campaigns ($p = 1 \to 2 \to 4 \to 8 \to 10$, each with its own \texttt{run\_id}, fresh \texttt{LocalCluster}, and sidecar, separated by \SI{1.5}{\second} pauses) inside one continuous \SI{26.6}{\minute} invocation on 2026-11-23 (\texttt{driver\_pid = 15160}, 13:25:55Z--13:52:28Z, host available RAM \SIrange{4263}{4891}{\mebi\byte}). No $p=1$ reference was interleaved inside each $p > 1$ session and $p$ order was fixed ascending; hence residual intra-sweep thermal and frequency drift on Windows is not fully eliminated (e.g., the 13:52Z diagnostic $n=1000, p=1$ run took \SI{0.368}{\second} vs.\ \SI{1.5287}{\second} at 13:26Z). Speedup and efficiency are computed strictly against the Nov~23 $p=1$ sub-campaign (\SI{1.5287}{\second} / \SI{6.0131}{\second} / \SI{11.6333}{\second}):
+\begin{equation}
+S_{\text{dist}}(p, n) = \frac{\tilde{T}_{\text{Dask\_E2E}}(1, n)}{\tilde{T}_{\text{Dask\_E2E}}(p, n)}, \qquad E_{\text{dist}}(p, n) = \frac{S_{\text{dist}}(p, n)}{p}
+\end{equation}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Local Single-Host Multi-Worker Strong-Scaling Summary ($b=250$, OpenBLAS=1, 1 Physical Host, $N=5$ Measured Repetitions, Seed \texttt{20261113}).}
+\label{tab:strong_scaling}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{rrrcrrrrrrrl}
+\toprule
+$n$ & $p$ & PIDs & Done & Med $T_{\text{E2E}}$ (s) & IQR (s) & Mean (s) & $S_{\text{dist}}(p)$ & $E_{\text{dist}}(p)$ & Peak RSS (MiB) & Managed (MiB) & Status \\
+\midrule
+1000 & 1  & 2  & 5/5 & \textbf{1.5287}  & 0.5568  & 1.7350  & 1.00$\times$ & 100.0\% & 407.7  & 53.4  & \texttt{COMPLETED} ($\Delta=0$) \\
+1000 & 2  & 3  & 5/5 & \textbf{2.3203}  & 0.4401  & 2.5033  & 0.66$\times$ & 32.9\%  & 535.9  & 69.1  & \texttt{COMPLETED} ($\Delta=0$) \\
+1000 & 4  & 5  & 5/5 & \textbf{7.3915}  & 0.6233  & 7.5670  & 0.21$\times$ & 5.2\%   & 733.7  & 70.1  & \texttt{COMPLETED} ($\Delta=0$) \\
+1000 & 8  & 9  & 5/5 & \textbf{12.9262} & 14.7408 & 18.3671 & 0.12$\times$ & 1.5\%   & 1075.2 & 63.4  & \texttt{COMPLETED} ($\Delta=0$) \\
+1000 & 10 & 11 & 0/5 & ---              & ---     & ---     & N/A          & N/A     & ---    & ---   & \texttt{NOT\_RUN\_AFTER\_TIMEOUT} \\
+\midrule
+1500 & 1  & 2  & 5/5 & \textbf{6.0131}  & 0.8975  & 6.3114  & 1.00$\times$ & 100.0\% & 520.1  & 154.5 & \texttt{COMPLETED} ($\Delta=0$) \\
+1500 & 2  & 3  & 5/5 & \textbf{7.9502}  & 1.8595  & 7.9982  & 0.76$\times$ & 37.8\%  & 692.5  & 205.5 & \texttt{COMPLETED} ($\Delta=0$) \\
+1500 & 4  & 5  & 5/5 & \textbf{7.8444}  & 1.1721  & 9.1675  & 0.77$\times$ & 19.2\%  & 866.5  & 206.5 & \texttt{COMPLETED} ($\Delta=0$) \\
+1500 & 8  & 9  & 5/5 & \textbf{17.7094} & 2.9573  & 17.0143 & 0.34$\times$ & 4.2\%   & 1173.2 & 165.9 & \texttt{COMPLETED} ($\Delta=0$) \\
+1500 & 10 & 11 & 4/5 & \textit{40.3655*} & \textit{41.7125*} & \textit{54.8795*} & N/A & N/A & 1360.0 & 154.5 & \texttt{PARTIAL\_TIMEOUT} (131.92 s) \\
+\midrule
+2000 & 1  & 2  & 5/5 & \textbf{11.6333} & 1.2076  & 11.2135 & 1.00$\times$ & 100.0\% & 787.1  & 335.7 & \texttt{COMPLETED} ($\Delta=0$) \\
+2000 & 2  & 3  & 5/5 & \textbf{9.5635}  & 2.4293  & 10.1923 & \textbf{1.22$\times$} & \textbf{60.8\%} & 967.8 & 408.2 & \texttt{COMPLETED} ($\Delta=0$) \\
+2000 & 4  & 5  & 5/5 & \textbf{39.1173} & 9.6631  & 35.7538 & 0.30$\times$ & 7.4\%   & 1133.5 & 356.7 & \texttt{COMPLETED} ($\Delta=0$) \\
+2000 & 8  & 9  & 5/5 & \textbf{43.8998} & 24.0615 & 41.2992 & 0.26$\times$ & 3.3\%   & 1468.1 & 337.6 & \texttt{COMPLETED} ($\Delta=0$) \\
+2000 & 10 & 11 & 0/5 & ---              & ---     & ---     & N/A          & N/A     & ---    & ---   & \texttt{NOT\_RUN\_AFTER\_TIMEOUT} \\
+\bottomrule
+\end{tabular}%
+}
+\vspace{1ex}
+
+\noindent{\footnotesize\textit{Protocol \S11.3 Note:} At $p=10, n=1500$, rep~5 exceeded \SI{120.0}{\second} (\SI{131.92}{\second}), halting the $p=10$ session safely and logging $n \in \{1000, 2000\}$ as \texttt{NOT\_RUN\_AFTER\_TIMEOUT}. Partial 4-rep timing is shown for transparency while official $S(10)$ and $E(10)$ are omitted (\texttt{N/A}). All completed rows exhibited zero checksum divergence ($\Delta=0.0$), populated \texttt{object\_nbytes} (\SIlist{72;234;544}{\mega\byte}), and 0 watchdog breaches (max RSS \SI{1468.1}{\mebi\byte} $\ll$ \SI{2560}{\mebi\byte}).}
 \end{table}
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.88\linewidth]{plot_contextual_comparison.png}
-\caption{Contextual runtime comparison across single-worker and single-thread implementations on a logarithmic scale. Timing boundaries differ: A4 measures Dask E2E; A1/A3 measure in-process kernel matrix multiplication.}
-\label{fig:contextual_comparison}
+\includegraphics[width=0.92\linewidth]{plot_strong_scaling.png}
+\caption{Local single-host multi-worker strong scaling ($p \in \{1, 2, 4, 8\}$, $n \in \{1000, 1500, 2000\}$, $b=250$, OpenBLAS=1, 1 physical host): median $T_{\text{Dask\_E2E}}$ with IQR bars on log scale (left) and strong-scaling speedup $S_{\text{dist}}(p, n)$ against ideal linear and $S=1.0$ breakeven lines (right). $p=10$ is omitted per protocol \S11.3 following timeout at $n=1500$.}
+\label{fig:strong_scaling}
 \end{figure}
+
+\noindent\textbf{Separate Diagnostic Characterization ($n=1000, b=250$):} Per \nolinkurl{docs/experimental_protocol.md} \S7.1, \nolinkurl{results/metadata/strong_scaling_diagnostics.json} collected task-stream and driver phase telemetry in a separate pass outside the primary timed campaign (112 DAG tasks: 64 \texttt{matmul} + 48 \texttt{add}):
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Separate Diagnostic Pass at $n=1000, b=250$ (Driver Wall-Clock Phases vs.\ Overlapping Worker Task-Stream Totals).}
+\label{tab:diagnostics}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{rrrrrrrrrrlr}
+\toprule
+$p$ & PIDs & $T_{\text{E2E}}$ (s) & \texttt{scatter} (s) & \texttt{submit} (s) & \texttt{wait} (s) & \texttt{gather} (s) & Compute* (s) & Transfer* (s) & In-Xfer & Tasks / Worker & Spill (B) \\
+\midrule
+1  & 2  & 0.368  & 0.102  & 0.038 & 0.185  & 0.036  & 0.089 & 0.000 & 0   & \texttt{[112]} & 0 \\
+2  & 3  & 2.825  & 0.718  & 0.489 & 1.377  & 0.206  & 0.283 & 0.188 & 48  & \texttt{[57, 55]} & 0 \\
+4  & 5  & 5.772  & 1.028  & 0.562 & 3.713  & 0.294  & 0.254 & 0.200 & 68  & \texttt{[29, 27, 28, 28]} & 0 \\
+8  & 9  & 82.379 & 27.309 & 2.133 & 27.834 & 24.028 & 0.335 & 0.654 & 101 & \texttt{[14,17,13,19,12,14,14,9]} & 0 \\
+10 & 11 & \multicolumn{10}{l}{\texttt{TIMEOUT}: 10 workers registered (11 OS PIDs); warm-up exceeded \SI{120.0}{\second} (\SI{121.38}{\second}).} \\
+\bottomrule
+\end{tabular}%
+}
+\vspace{1ex}
+
+\noindent{\footnotesize\textit{*Telemetry Interpretation Note:} Driver phases (\texttt{partitioning}, \texttt{scatter}, \texttt{submit}, \texttt{wait}, \texttt{gather}, \texttt{assembly}, \texttt{checksum}) partition wall-clock $T_{\text{E2E}}$ directly, whereas \texttt{Compute*} and \texttt{Transfer*} from \texttt{get\_task\_stream()} are overlapping sums across concurrent workers and are NOT additive fractions of $T_{\text{E2E}}$. Because Dask 2026.8.0's \texttt{metrics["transfer"]["incoming\_bytes"]} is an instantaneous in-flight gauge (returning to 0 upon completion), inter-worker traffic is measured via cumulative \texttt{incoming\_count\_total} deltas (\texttt{In-Xfer}: $0 \to 48 \to 68 \to 101$) and \texttt{transfer} task durations.}
+\end{table}
 
 \section{Discussion}
 
 \subsection{Verification of Hypotheses}
-\noindent\textbf{Hypothesis 1: Framework Overhead Dominance ($H_1$ Supported):} The empirical data strongly support $H_1$. At $n = 250$, Dask end-to-end duration is \SI{33.6}{\milli\second} (median), compared to \SI{6.0}{\milli\second} for the single-threaded A3 C $i\text{-}k\text{-}j$ in-process kernel (a contextual duration ratio of $0.18\times$), and \SI{5.9}{\milli\second} for A3 AVX2-tiled. While this duration difference is consistent with additional framework coordination and lifecycle activities—including 2D block slicing, scattering data over loopback sockets, dynamic task scheduling, gathering futures, dense matrix assembly, and full-matrix checksum summation—their individual contributions were not separately instrumented or isolated within the end-to-end timer. Nonetheless, the system-level comparison demonstrates that for small problem sizes with low computational intensity, distributed framework coordination introduces substantial latency overhead relative to in-process execution.
+\noindent\textbf{Hypothesis 1: Framework Overhead Dominance ($H_1$ Partially Supported --- Baseline-Dependent):} Empirical results for $n \le 500$ depend strongly on the comparison baseline. Against all optimized Assignment~3 in-process C baselines (\texttt{A3\_OpenMP\_ikj\_p1}, \texttt{A3\_Seq\_ikj}, \texttt{A3\_OpenMP\_tiled\_b32\_p1}, \texttt{A3\_Seq\_tiled\_b32}), Dask end-to-end execution (\SI{0.0336}{\second} at $n=250$; \SI{0.2062}{\second} at $n=500$) is substantially slower, yielding $\text{CTR} = 0.17{\times}\text{--}0.18{\times}$ at $n=250$ and $0.22{\times}\text{--}0.31{\times}$ at $n=500$, and likewise slower than \texttt{A1\_Seq\_Java} at $n=250$ ($\text{CTR}=0.82\times$). Conversely, $H_1$ is refuted in net duration at $n \le 500$ against stride-$n$ \texttt{A1\_Seq\_C\_ijk} ($\text{CTR}=2.71\times, 3.75\times$), \texttt{A1\_Seq\_Java} at $n=500$ ($1.67\times$), and Python ($329.83\times, 484.75\times$), because OpenBLAS's AVX2 microkernel offsets framework coordination relative to unblocked or interpreted loops.
 
-\noindent\textbf{Hypothesis 2: Asymptotic Computational Domination ($H_2$ Supported as System-Level Trend):} The observed scaling trend is consistent with increasing computational work reducing the relative impact of fixed framework coordination costs. As $n$ increases from $250$ to $2000$, total floating-point operations expand from $0.031\text{ GFLOP}$ to $16.0\text{ GFLOP}$ ($512\times$). Dask's reliance on OpenBLAS—which utilizes hardware AVX2 FMA vectorization and register-level cache tiling—enables it to achieve shorter end-to-end runtimes than unoptimized sequential loops at large dimensions:
+\noindent\textbf{Hypothesis 2: Larger-Dimension Scaling, Crossovers \& Multi-Worker Granularity ($H_2$ Partially Supported):} $H_2$ evaluates whether cubic arithmetic growth ($2n^3$, expanding $512\times$ from \SI{0.031}{GFLOP} at $n=250$ to \SI{16.0}{GFLOP} at $n=2000$) amortizes framework coordination overhead at $p=1$ and enables positive multi-worker speedup:
 \begin{itemize}
-    \item At $n=1000$, Dask E2E duration (\SI{0.9318}{\second}) is shorter than canonical A1 C (\SI{7.1264}{\second}, $\text{CTR} = 7.65\times$) and A1 Java (\SI{3.3293}{\second}, $\text{CTR} = 3.57\times$).
-    \item At $n=2000$, Dask E2E duration (\SI{7.4963}{\second}) is shorter than A3 C OpenMP $p=1$ (\SI{16.3745}{\second}, $\text{CTR} = 2.18\times$).
+    \item \textbf{Single-Worker Contextual Crossovers ($p=1$):} \texttt{A1\_Seq\_Java} crosses $\text{CTR}=1.0$ between $n=250$ ($0.82\times$) and $n=500$ ($1.67\times$, reaching $3.57\times$ at $n=1000$); untiled \texttt{A3\_OpenMP\_ikj\_p1} / \texttt{A3\_Seq\_ikj} cross at $n=1000$ ($1.06\times$ / $1.32\times$, reaching $2.18\times$ / $2.04\times$ at $n=2000$ once untiled C exceeds L3 cache); \texttt{A1\_Seq\_C\_ijk} and Python exceed $1.0$ across all tested sizes; and \textbf{no crossover occurs through $n=2000$} against cache-blocked AVX2 \texttt{A3\_Seq\_tiled\_b32} / \texttt{A3\_OpenMP\_tiled\_b32\_p1} ($\text{CTR}=0.63\times$ / $0.57\times$).
+    \item \textbf{Multi-Worker Granularity ($p > 1$, Local Single Host):} Table~\ref{tab:strong_scaling} confirms that task granularity is decisive: at $n=1000$ (112 tasks, \SI{2.0}{GFLOP}) and $n=1500$ (396 tasks, \SI{6.75}{GFLOP}), even $p=2$ slows execution ($S_{\text{dist}} = 0.66\times$ and $0.76\times$). Positive median strong-scaling speedup emerges \textbf{only} at $n=2000$ (960 tasks, \SI{16.0}{GFLOP}) with $p=2$: $S_{\text{dist}}(2, 2000) = 1.22\times$ ($E_{\text{dist}} = 60.8\%$, median \SI{9.5635}{\second} vs.\ \SI{11.6333}{\second}). Even in that sole positive cell, per-repetition ranges overlap (\SIrange{8.49}{12.75}{\second}, $\text{IQR}=\SI{1.21}{\second}$ at $p=1$ vs.\ \SIrange{9.01}{11.68}{\second}, $\text{IQR}=\SI{2.43}{\second}$ at $p=2$, with $p=1$ rep~3 at \SI{8.49}{\second} faster than all $p=2$ reps), so this modest gain does not generalize to smaller tested sizes.
 \end{itemize}
-However, when compared against the cache-blocked C implementation (A3 Seq Tiled $b=32$, \SI{4.7202}{\second}), the baseline duration was shorter than Dask ($\text{CTR} = 0.63\times$). Because both implementations utilize AVX2 vectorization, the remaining difference reflects system-level workflow characteristics: assembling 64 output blocks into a contiguous array, inter-process socket communication, and full-matrix checksum reduction. Because individual execution phases (graph submission, socket IPC, BLAS computation, and dense assembly) were not separately isolated, the experiment does not establish a measured phase crossover or prove that arithmetic computation becomes the dominant runtime contributor; rather, the data support $H_2$ strictly as an observed system-level duration trend under differing timing boundaries, rather than an isolated algorithmic speedup or pure kernel benchmark.
 
-\noindent\textbf{Hypothesis 3: Worker Saturation \& Scaling Limits ($H_3$ Qualitative Architectural Assessment):} Because institutional decision DEC-01 blocked empirical multi-worker execution ($p \in \{2, 4, 8, 10\}$) and physical multi-node infrastructure was unavailable, Hypothesis 3 could not be empirically evaluated or confirmed. Architectural considerations—such as the potential for shared memory bus contention, L3 cache pressure, and core performance asymmetry on the hybrid Intel Core i5-1335U (2 P-cores + 8 E-cores)—remain theoretical hypotheses for future research under approved multi-worker configurations. Single-worker execution ($p=1$) cannot be used to infer multi-worker scaling behavior, and local process emulation must not be conflated with physical cluster scaling.
-
-\noindent\textbf{Hypothesis 4: System-Level Contextual Comparisons ($H_4$ Supported):} The cross-assignment comparisons confirm $H_4$. Presenting a ratio such as $\text{CTR} = 7.65\times$ (Dask vs. A1 C) as a ``distributed speedup'' would be methodologically false:
+\noindent\textbf{Hypothesis 3: Worker Saturation \& Scaling Limits on Asymmetric Single Host ($H_3$ Empirically Supported):} The authorized strong-scaling sweep and separate diagnostic pass \textbf{empirically support $H_3$}. Scaling beyond two workers ($p \in \{4, 8, 10\}$) causes rapid, non-monotonic degradation across all three dimensions:
 \begin{enumerate}
-    \item \textbf{Timing Scope:} A1 measures in-process kernel compute time (\texttt{TB\_KERNEL\_ONLY}), whereas A4 measures complete distributed lifecycle time including scatter, reduction, assembly, and checksums (\texttt{TB\_DASK\_E2E}).
-    \item \textbf{Computational Libraries:} Dask invokes multi-tier assembly-optimized OpenBLAS GEMM kernels, whereas A1 executes an unoptimized canonical triple loop.
-    \item \textbf{Data Types \& Layouts:} Although both use IEEE~754 \texttt{float64}, memory access patterns differ fundamentally (stride-$n$ column reads in A1 $i\text{-}j\text{-}k$ vs. contiguous stride-1 reads in A3 and BLAS).
+    \item \textbf{Measured Slowdown and Dispersion:} At $p=4$, speedup drops to $0.21\times$ ($n=1000$), $0.77\times$ ($n=1500$), and $0.30\times$ ($n=2000$); at $p=8$, speedup falls to $0.12{\times}\text{--}0.34{\times}$ while dispersion surges ($\text{IQR}=\SI{14.74}{\second}$ at $n=1000$; \SI{24.06}{\second} at $n=2000$). At $p=10$, rep~5 of $n=1500$ hits the \SI{120.0}{\second} timeout (\SI{131.92}{\second}), independently corroborated by the $n=1000$ diagnostic warm-up timing out at \SI{121.38}{\second}.
+    \item \textbf{Measured Phase Breakdown vs.\ Architectural Hypotheses (Ruling Out RAM \& Compute):} Table~\ref{tab:diagnostics} directly rules out memory exhaustion, disk spilling (\SI{0}{\byte}; peak RSS \SI{1075.2}{\mebi\byte} at $n=1000, p=8$ and max \SI{1468.1}{\mebi\byte} at $n=2000, p=8 \ll \SI{2560}{\mebi\byte}$ cap), and OpenBLAS compute (overlapping aggregate worker compute totals \SI{0.335}{\second}, $\le 0.41\%$ of \SI{82.38}{\second}). Directly measured driver phases show \texttt{scatter\_s} (\SI{27.31}{\second}), \texttt{wait\_s} (\SI{27.83}{\second}, enclosing concurrent worker execution and coordination wait), and \texttt{gather\_s} (\SI{24.03}{\second}) representing \textbf{96.11\%} of $T_{\text{E2E}}$ (\textbf{98.70\%} including \texttt{graph\_submission\_s} = \SI{2.13}{\second}), alongside rising inter-worker transfer counts ($0 \to 48 \to 68 \to 101$). As \textbf{architectural hypotheses consistent with these measurements}---not separately isolated via OS socket, event-loop, or core-affinity profiling---this non-compute growth aligns with centralized Tornado scheduler contention, Windows loopback TCP IPC overhead, and asymmetric P/E-core scheduling.
 \end{enumerate}
 
+\noindent\textbf{Hypothesis 4: System-Level Contextual Comparisons ($H_4$ Supported):} Cross-assignment comparisons confirm $H_4$: timing scopes (\texttt{TB\_KERNEL\_ONLY} vs.\ \texttt{TB\_DASK\_E2E}), computational libraries (OpenBLAS vs.\ naive loops), and memory layouts differ fundamentally. Moreover, comparing Dask's best local multi-worker time at $n=2000$ (\SI{9.5635}{\second} at $p=2$) against Assignment~3's 10-thread shared-memory OpenMP kernels (\texttt{omp\_tiled\_b32}: \SI{0.6250}{\second}, $15.3\times$ faster; \texttt{omp\_ikj}: \SI{1.5443}{\second}, $6.2\times$ faster) demonstrates why zero-copy shared-memory threading decisively outperforms multi-process distributed frameworks on a single machine.
+
 \subsection{A1 Compiler Optimization Inspection and Scientific Implications}
-In accordance with \texttt{SPEC.md} DEC-04, Phase 5 inspected the assembly output of \texttt{baselines/a1\_sequential/benchmark.c} (\texttt{build/bin/a1\_benchmark.s}) compiled under \texttt{-O3}. The inspection confirmed:
+In accordance with \texttt{SPEC.md} DEC-04, Phase 5 inspected the assembly output of \nolinkurl{baselines/a1_sequential/benchmark.c} (\nolinkurl{build/bin/a1_benchmark.s}) compiled under \texttt{-O3}. The inspection confirmed:
 \begin{enumerate}
     \item The inspected GCC 13.2.0 (\texttt{-O3}) assembly confirmed that the complete $\mathcal{O}(n^3)$ loop body survived dead-code elimination in the compiled binary (\texttt{.L63}, \texttt{.L69}, \texttt{.L65}), vectorizing the innermost loop with packed SSE/AVX instructions (\texttt{movupd}, \texttt{mulpd}, \texttt{unpckhpd}). The binary did not demonstrate elimination of the multiplication loop.
     \item However, the benchmark harness consumed only $c[0]$ via a volatile sink (\texttt{result\_sink = c[0]}).
     \item Consequently, the remaining $n^2 - 1$ output elements were never validated for numerical correctness during benchmarking.
-    \item \textbf{Consequence for Interpreting A1 Timing:} While the measured A1 execution time reflects the actual execution of the complete $\mathcal{O}(n^3)$ loop in the inspected binary, the harness suffered from a structural validation deficiency because it failed to certify that the computed result matrix was numerically correct beyond $c[0].$ In Assignment 4, the full-matrix checksum consumes all elements of the assembled array within the timed boundary, while numerical validation is provided by element-by-element reference validation at $n=250$ and checksum determinism across repetitions (zero observed checksum divergence, $\Delta = 0.0$) for $n \ge 500$.
+    \item \textbf{Consequence for Interpreting A1 Timing:} While the measured A1 execution time reflects the actual execution of the complete $\mathcal{O}(n^3)$ loop in the inspected binary, the harness suffered from a structural validation deficiency because it failed to certify that the computed result matrix was numerically correct beyond $c[0]$. In Assignment 4, the full-matrix checksum consumes all elements of the assembled array within the timed boundary, while numerical validation is provided by element-by-element reference validation at $n=250$ and checksum determinism across repetitions (zero observed checksum divergence, $\Delta = 0.0$) for $n \ge 500$.
 \end{enumerate}
 
-\subsection{Local Process Emulation vs. True Physical Clustering}
-In compliance with requirement A4-12, the experimental deployment is explicitly designated as \textbf{single-host process emulation}:
+\subsection{Local Process Emulation vs.\ True Physical Clustering and Weak Scaling}
+In compliance with requirement A4-12, all single-worker and multi-worker runs ($p \in \{1, 2, 4, 8, 10\}$) are explicitly designated as \textbf{single-host process emulation} (\texttt{physical\_machine\_count = 1}):
 \begin{itemize}
-    \item Communication occurred exclusively over Windows loopback sockets (\texttt{127.0.0.1}), entirely bypassing physical network interface cards.
-    \item Memory was allocated from a single shared physical pool (\SI{16}{\giga\byte} DRAM), subject to OS page sharing.
-    \item Inter-process communication did not encounter packet routing, network interface queueing, MTU fragmentation, or physical switch contention.
-    \item While local process emulation successfully validates Dask framework mechanics, DAG generation, and process lifecycle management, it cannot be extrapolated to physical cluster performance.
+    \item Communication occurred exclusively over Windows loopback sockets (\texttt{127.0.0.1}), bypassing physical NICs, routing, and switch contention---yet coordination and data-movement phases (\texttt{scatter}, \texttt{submit}, \texttt{wait}, \texttt{gather}) dominated wall-clock time for $p \ge 4$, consistent with local IPC and scheduler contention rather than RAM exhaustion.
+    \item Memory was allocated from a single shared \SI{16}{\giga\byte} DRAM pool, where each additional Python worker added \SIrange{80}{160}{\mebi\byte} of working set without expanding aggregate cluster RAM.
+    \item While local multi-worker emulation rigorously characterizes Dask scheduling overhead, task balance, process memory scaling, and local multi-process saturation, it cannot be extrapolated to multi-node network throughput.
+    \item \textbf{Weak Scaling (DEC-07, Optional \& Deferred):} Equal-work dense cubic weak scaling obeys $W(n)=2n^3 \implies n(p)=n(1)\cdot p^{1/3}$; because single-host strong scaling already saturates beyond $p=2$ and times out at $p=10$, generating new non-frozen weak-scaling inputs on the same single host remains deferred.
 \end{itemize}
 
 \section{Conclusions}
-This study provides a controlled, empirical evaluation of distributed 2D block matrix multiplication using Dask Distributed. Within the tested scope, the following conclusions are established:
+This study provides a controlled, empirical evaluation of distributed 2D block matrix multiplication using Dask Distributed across both a frozen six-size single-worker baseline ($p=1$) and an authorized local multi-worker strong-scaling campaign ($p \in \{1, 2, 4, 8, 10\}$). Within the tested single-host scope:
 \begin{enumerate}
-    \item \textbf{Framework Coordination Overhead at Small Sizes:} Dask Distributed exhibits substantial coordination latency for small dense matrix multiplication ($n \le 500$), where end-to-end duration at $n=250$ was over $5\times$ longer than native in-process C.
-    \item \textbf{Observed Scaling Trends at Large Dimensions:} For large matrices ($n \ge 1000$), the observed scaling trend is consistent with increasing computational work reducing the relative impact of fixed framework coordination costs, resulting in shorter Dask end-to-end durations compared to unoptimized sequential loops (e.g., $\text{CTR} = 7.65\times$ vs. A1 C at $n=1000$), while remaining contextually longer than hand-tuned cache-blocked AVX2 implementations ($\text{CTR} = 0.63\times$ at $n=2000$). However, because individual execution phases were not separately isolated, the experiment does not establish a measured phase crossover or prove that arithmetic computation becomes the dominant runtime contributor.
-    \item \textbf{Numerical Validation and Checksum Determinism:} The 2D block decomposition with pairwise tree reduction demonstrated certified element-by-element numerical correctness against an independent reference at $n=250$ and checksum determinism across repetitions (zero observed checksum divergence, $\Delta = 0.0$) for all tested dimensions.
-    \item \textbf{Unresolved Questions:} Because local multi-worker execution ($p > 1$) was blocked under DEC-01 and physical multi-node infrastructure was unavailable, empirical strong-scaling speedup ($S(p)$), parallel efficiency ($E(p)$), and multi-machine network scaling remain \textbf{unresolved within this study}.
+    \item \textbf{Framework Overhead \& Contextual Crossovers ($H_1, H_2$ Partially Supported):} At $n \le 500$, Dask is slower than optimized in-process C kernels ($\text{CTR}=0.17{\times}\text{--}0.31{\times}$ vs.\ A3), while OpenBLAS still beats stride-$n$ A1 C ($2.71{\times}\text{--}3.75{\times}$) and Python ($\ge 329.8\times$). At larger sizes ($p=1$), Dask overtakes A1 Java by $n=500$ ($1.67\times$) and untiled A3 $i\text{-}k\text{-}j$ at $n=1000$ ($1.06\times$, $2.18\times$ at $n=2000$), yet shows \textbf{no crossover through $n=2000$} against AVX2-tiled C (\texttt{A3\_Seq\_tiled\_b32}: $\text{CTR}=0.63\times$).
+    \item \textbf{Local Multi-Worker Strong Scaling \& Coordination Saturation ($H_2$ Partial, $H_3$ Empirically Supported):} Across five consecutive single-$p$ sub-campaigns ($p = 1 \to 2 \to 4 \to 8 \to 10$) on 1 physical host ($1+p$ OS PIDs), positive median speedup emerges \textbf{only} at $n=2000, p=2$ ($S_{\text{dist}}=1.22\times$, $E_{\text{dist}}=60.8\%$, with overlapping repetition ranges \SIrange{8.49}{12.75}{\second} vs.\ \SIrange{9.01}{11.68}{\second}). Beyond $p=2$, runtime degrades sharply ($S(4)=0.21{\times}\text{--}0.77{\times}$, $S(8)=0.12{\times}\text{--}0.34{\times}$, $\text{IQR}$ up to \SI{24.06}{\second}) and hits the \SI{120.0}{\second} timeout at $p=10$ (\SI{131.92}{\second} on $n=1500$ rep~5). Separate diagnostics verify balanced task distribution and rule out disk spilling (\SI{0}{\byte}; max RSS \SI{1468.1}{\mebi\byte} $\ll$ \SI{2560}{\mebi\byte}) and BLAS compute ($\le \SI{0.335}{\second}$), measuring \textbf{96.11\%} of wall-clock time at $p=8$ in \texttt{scatter}+\texttt{wait}+\texttt{gather} (\textbf{98.70\%} including \texttt{submit}), consistent with architectural hypotheses of centralized scheduler, loopback IPC, and P/E-core scheduling contention.
+    \item \textbf{Numerical Validation \& Cross-System Boundaries ($H_4$ Supported):} The 2D block reduction passed element-by-element validation at $n=250$ ($\max|\Delta|=1.137\times 10^{-13}$ for $b=250$, $1.208\times 10^{-13}$ for $b=100$, well within $\text{atol}=10^{-9}, \text{rtol}=10^{-12}$; aggregate checksum diff \num{0.0}), exact 250{,}000-element $C_{500}$ cross-validation across $p=2$ vs.\ $p=1$ ($\max|\Delta|=0.0$), and exact checksum invariance ($\Delta=0.0$) across all \textbf{119 completed rows} (of 138 logged; 19 failed/timed-out/skipped rows record empty checksums). Zero-copy shared-memory OpenMP $t=10$ (\SI{0.6250}{\second} vs.\ Dask's best \SI{9.5635}{\second} at $n=2000$) reinforces that distributed frameworks are not designed to beat shared-memory threading on a single host.
+    \item \textbf{Remaining Scope Limitation:} Because no accredited multi-node cluster was available, genuine inter-machine network scaling, multi-node memory aggregation, and optional weak scaling (DEC-07) remain future work on physical multi-node infrastructure.
 \end{enumerate}
 
 \section{References and Materials}
 
 \subsection{References}
+\begingroup
+\small
+\renewcommand{\section}[2]{}%
 \begin{thebibliography}{9}
+\setlength{\itemsep}{1pt}
 \bibitem{Dean2008} J.~Dean and S.~Ghemawat, ``MapReduce: Simplified data processing on large clusters,'' \emph{Communications of the ACM}, vol.~51, no.~1, pp.~107--113, 2008.
-\bibitem{Rocklin2015} M.~Rocklin, ``Dask: Parallel computation with blocked algorithms and task scheduling,'' in \emph{Proc. 14th Python in Science Conf. (SciPy)}, 2015, pp.~126--132.
+\bibitem{Rocklin2015} M.~Rocklin, ``Dask: Parallel computation with blocked algorithms and task scheduling,'' in \emph{Proc. 14th Python in Science Conf. (SciPy)}, 2015, pp.~130--136.
 \bibitem{VanDeGeijn1997} R.~A.~van de Geijn and J.~Watts, ``SUMMA: Scalable universal matrix multiplication algorithm,'' \emph{Concurrency: Practice and Experience}, vol.~9, no.~4, pp.~255--274, 1997.
 \bibitem{Golub2013} G.~H.~Golub and C.~F.~Van Loan, \emph{Matrix Computations}, 4th~ed. Baltimore, MD: Johns Hopkins University Press, 2013.
 \bibitem{VanDerWalt2011} S.~van der Walt, S.~C.~Colbert, and G.~Varoquaux, ``The NumPy array: A structure for efficient numerical computation,'' \emph{Computing in Science \& Engineering}, vol.~13, no.~2, pp.~22--30, 2011.
 \bibitem{IEEE754} \emph{IEEE Standard for Floating-Point Arithmetic}, IEEE Std 754-2019, 2019.
 \bibitem{CourseSpec} Universidad de Las Palmas de Gran Canaria, ``Individual Assignments: Matrix Multiplication,'' Big Data Course Specification, Academic Year 2026--2027.
 \end{thebibliography}
+\endgroup
 
 \subsection{Reproducibility Package and Cryptographic Manifest}
-The complete study is reproducible from the version-controlled codebase and certified raw data:
-\begin{itemize}
-    \item Raw campaign measurements: \nolinkurl{results/raw/raw_measurements.csv}\\
-    {\footnotesize (SHA-256: \texttt{3D9D721343D379C26F61DD6B4669979F6E7E5262E0D8F6E96CD4D26B1F0FE92C})}
-    \item Campaign sidecar metadata: \nolinkurl{results/metadata/sidecar_campaign_20261114_...json}\\
-    {\footnotesize (SHA-256: \texttt{94EABF800B581408E540B9DEB103B93D3CD3724CF166EB3DEFDE02D5DE421E89})}
-    \item Calculated numerical reference matrix ($n=250$): \nolinkurl{data/validation/reference/C_250.csv}\\
-    {\footnotesize (SHA-256: \texttt{598E9A9FC8F0C8DB1D5DA277F4D93561AD83E2DF77E3FCB5F968F67B8033909E})}
-    \item Offline analysis script: \nolinkurl{scripts/analyze_campaign.py}\\
-    {\footnotesize (SHA-256: \texttt{88E36C023D74ED5D6C4B7F15FF897CFD774DB4657B808684A8E1133AD5B13ABF})}
-    \item Descriptive summary statistics: \nolinkurl{results/analysis/campaign_summary_statistics.csv}\\
-    {\footnotesize (SHA-256: \texttt{B82F8EE5A22FB44D32274D60C90420BA9137D83AC3B592D7DD9D11CD314669F4})}
-    \item Contextual baseline comparisons: \nolinkurl{results/analysis/contextual_baseline_comparison.csv}\\
-    {\footnotesize (SHA-256: \texttt{FAEE4E526D3C8808A54DDFE28EA8CDDAB708D7CC2D8C6AA72064D40ED662E204})}
+{\footnotesize
+\begin{itemize}[noitemsep, topsep=2pt]
+    \item Raw measurements CSV (138 rows; lines~1--49 historical prefix preserved \texttt{3D9D7213...}, \nolinkurl{results/raw/raw_measurements.csv}):\\ \texttt{831A731D9DF6073F3D19AD4A7D4E4F8B54E04D39CFE463D298857F26F4ED426C}
+    \item Frozen Phase~8 sidecar:\\ \nolinkurl{results/metadata/sidecar_campaign_20261114_205134_1d126401af244671b4ca8708818549f3.json}\\ \texttt{94EABF800B581408E540B9DEB103B93D3CD3724CF166EB3DEFDE02D5DE421E89}
+    \item Strong-scaling manifest / diagnostics (\nolinkurl{strong_scaling_manifest.json} / \nolinkurl{strong_scaling_diagnostics.json}):\\ \texttt{22635DFA...66F2EAD} / \texttt{BB8A769C...0596811}
+    \item Calculated reference ($n=250$, \nolinkurl{data/validation/reference/C_250.csv}):\\ \texttt{598E9A9FC8F0C8DB1D5DA277F4D93561AD83E2DF77E3FCB5F968F67B8033909E}
+    \item Offline analysis script (\nolinkurl{scripts/analyze_campaign.py}):\\ \texttt{1080CFEC929284FDC567DE3460FF1D1484177A95FE62CA292851FE014BA22892}
+    \item Phase~8 CSVs (\nolinkurl{campaign_measurements.csv} / \nolinkurl{campaign_summary_statistics.csv} / \nolinkurl{contextual_baseline_comparison.csv}):\\ \texttt{5C5F9866...5BDBD30} / \texttt{B82F8EE5...14669F4} / \texttt{FAEE4E52...662E204}
+    \item Strong-scaling CSVs (\nolinkurl{strong_scaling_measurements.csv} / \nolinkurl{strong_scaling_summary.csv}):\\ \texttt{A92F74E8...968CB60D} / \texttt{C3B11DB5...55C2396}
+    \item Plots (\nolinkurl{plot_dask_p1_scaling.png} / \nolinkurl{plot_contextual_comparison.png} / \nolinkurl{plot_strong_scaling.png}):\\ \texttt{F000AAAB...B42098} / \texttt{AA810C44...96E73D79} / \texttt{E213132C...36DE2E58}
 \end{itemize}
+}
 
 \section{Generative AI Assistance Declaration}
 In compliance with the ULPGC Big Data course policy on Generative Artificial Intelligence (PDF page 9), the author declares that an AI assistant (\textbf{Google Antigravity / Gemini}) was consulted during this project for:
 \begin{enumerate}
-    \item Architectural scaffolding of modular Python classes for 2D block partitioning (\texttt{partitioning.py}), binary-tree DAG construction (\texttt{reduction.py}), and process-tree watchdog monitoring (\texttt{watchdog.py}).
-    \item Quality engineering and test construction for unit and regression test fixtures (\texttt{tests/test\_cli.py}, \texttt{tests/test\_pilot\_runner.py}, \texttt{tests/test\_campaign\_runner.py}).
-    \item Statistical analysis scripting for offline NumPy/Matplotlib analysis pipelines (\texttt{scripts/analyze\_campaign.py}).
+    \item Architectural scaffolding of modular Python classes for 2D block partitioning (\texttt{partitioning.py}), binary-tree DAG construction (\texttt{reduction.py}), and watchdog monitoring (\texttt{watchdog.py}).
+    \item Quality engineering and test construction for unit and regression test fixtures (\nolinkurl{tests/test_cli.py}, \nolinkurl{tests/test_pilot_runner.py}, \nolinkurl{tests/test_campaign_runner.py}).
+    \item Statistical analysis scripting for offline NumPy/Matplotlib analysis pipelines (\nolinkurl{scripts/analyze_campaign.py}).
     \item Technical writing and typesetting assistance for Markdown and LaTeX documents.
 \end{enumerate}
 \noindent\textbf{Author Responsibility Certification:} All source code and tests were audited, compiled, and executed locally; all empirical measurements trace directly to physical CSV records; zero measurements or citations were fabricated; and the author assumes full academic responsibility for the integrity and defense of this work.
