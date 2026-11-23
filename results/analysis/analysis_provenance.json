@@ -1,16 +1,24 @@
 {
-  "analysis_schema_version": "1.0",
-  "generated_utc": "2026-11-14T22:12:29.521587+00:00",
+  "analysis_schema_version": "1.1",
+  "generated_utc": "2026-11-23T14:09:32.752432+00:00",
   "source_script": "scripts/analyze_campaign.py",
-  "source_script_sha256": "88E36C023D74ED5D6C4B7F15FF897CFD774DB4657B808684A8E1133AD5B13ABF",
+  "source_script_sha256": "1080CFEC929284FDC567DE3460FF1D1484177A95FE62CA292851FE014BA22892",
   "target_campaign_run_id": "campaign_20261114_205134_1d126401af244671b4ca8708818549f3",
   "raw_measurements_csv": {
     "path": "results/raw/raw_measurements.csv",
-    "sha256": "3D9D721343D379C26F61DD6B4669979F6E7E5262E0D8F6E96CD4D26B1F0FE92C"
+    "sha256": "831A731D9DF6073F3D19AD4A7D4E4F8B54E04D39CFE463D298857F26F4ED426C"
   },
   "campaign_sidecar_json": {
     "path": "results/metadata/sidecar_campaign_20261114_205134_1d126401af244671b4ca8708818549f3.json",
     "sha256": "94EABF800B581408E540B9DEB103B93D3CD3724CF166EB3DEFDE02D5DE421E89"
+  },
+  "strong_scaling_manifest_json": {
+    "path": "results/metadata/strong_scaling_manifest.json",
+    "sha256": "22635DFA7B84FB23D339EB56273487F3E12CB0B9BB6466CC090775CF366F2EAD"
+  },
+  "strong_scaling_diagnostics_json": {
+    "path": "results/metadata/strong_scaling_diagnostics.json",
+    "sha256": "BB8A769C7175435311E6AAB9FEEE621EA7F283B8E3D004BEFBFB6C2700596811"
   },
   "methodology": {
     "quantile_method": "linear",
@@ -26,9 +34,37 @@
       1500,
       2000
     ],
+    "historical_48_rows_prefix_sha256": "3D9D721343D379C26F61DD6B4669979F6E7E5262E0D8F6E96CD4D26B1F0FE92C",
     "contextual_comparison_formula": "CTR = median(T_baseline) / median(T_Dask_p1)",
     "contextual_comparison_note": "Contextual duration comparison across differing timing boundaries, not speedups.",
-    "reproducibility_note": "The derived artifacts passed independent numerical verification, source inspection, row-level reconciliation, and cryptographic integrity checks. Full offline regeneration was executed and verified in Phase 8.4.2."
+    "reproducibility_note": "The derived artifacts passed independent numerical verification, source inspection, row-level reconciliation, and cryptographic integrity checks. Offline regeneration covers both the frozen Phase 8 p=1 campaign and the DEC-01 authorized local multi-worker strong-scaling campaign.",
+    "strong_scaling_run_ids": [
+      "campaign_20261123_132555_4e196b9114914be79c19cbdc838b9a13",
+      "campaign_20261123_132816_17542d5a8b3b40a6b8882965174b93f0",
+      "campaign_20261123_133043_588dc09eef8c4aeba84b377b76b1b47f",
+      "campaign_20261123_133606_d9e4a2d1514c409fb79f16772c5ece29",
+      "campaign_20261123_134419_732c8fbdef094de78c41b8a72a2b179c"
+    ],
+    "strong_scaling_dimensions": [
+      1000,
+      1500,
+      2000
+    ],
+    "strong_scaling_workers_planned": [
+      1,
+      2,
+      4,
+      8,
+      10
+    ],
+    "strong_scaling_workers_completed_all_sizes": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "strong_scaling_speedup_formula": "S_dist(p, n) = median(T_Dask_E2E(1, n)) / median(T_Dask_E2E(p, n))",
+    "strong_scaling_partial_timeout_rule": "Per docs/experimental_protocol.md \u00a711.3, official speedup and efficiency are omitted whenever completed_measured_count < expected_measured_count (e.g., p=10 timeout at n=1500)."
   },
   "derived_artifacts": {
     "campaign_measurements_csv": {
@@ -50,6 +86,18 @@
     "plot_contextual_comparison_png": {
       "path": "results/analysis/plot_contextual_comparison.png",
       "sha256": "AA810C44894482E9C763A46771953704BB6D35F1DF48D0B1516A5A1396E73D79"
+    },
+    "strong_scaling_measurements_csv": {
+      "path": "results/analysis/strong_scaling_measurements.csv",
+      "sha256": "A92F74E888B87CA2B60D8D7381B717F865260E8296EF083EB4E21662968CB60D"
+    },
+    "strong_scaling_summary_csv": {
+      "path": "results/analysis/strong_scaling_summary.csv",
+      "sha256": "C3B11DB5CE1B0C4C4DDF3FC43913029726C48CA47CB53ECB4CB0D50DD55C2396"
+    },
+    "plot_strong_scaling_png": {
+      "path": "results/analysis/plot_strong_scaling.png",
+      "sha256": "E213132C3C31C186AB420AEE498427AC4FA2EB2D5C9559CB185F822A36DE2E58"
     }
   }
 }

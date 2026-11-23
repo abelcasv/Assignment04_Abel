@@ -1,0 +1,637 @@
+{
+  "generated_utc": "2026-11-23T13:52:39.710955+00:00",
+  "protocol_reference": "docs/experimental_protocol.md \u00a77.1 (separate from primary timed campaign)",
+  "n": 1000,
+  "block_size": 250,
+  "physical_machine_count": 1,
+  "results_by_p": {
+    "1": {
+      "status": "COMPLETED",
+      "error_reason": null,
+      "time_e2e_s": 0.3684243999887258,
+      "checksum": 250006793.22638825,
+      "object_nbytes": 72000000,
+      "dask_managed_memory_mib": 6.67572021484375,
+      "phase_breakdown_s": {
+        "partitioning_s": 0.003942999988794327,
+        "scatter_s": 0.10204740008339286,
+        "graph_submission_s": 0.037744800094515085,
+        "wait_s": 0.18533300003036857,
+        "gather_s": 0.03577230009250343,
+        "assembly_s": 0.003010700223967433,
+        "checksum_s": 0.0005702001508325338
+      },
+      "worker_memory_stats": {
+        "tcp://127.0.0.1:50299": {
+          "managed_bytes": 7000000,
+          "process_bytes": 101543936,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        }
+      },
+      "rss_process_sum_peak_mib": 514.29296875,
+      "rss_driver_mib": 372.15234375,
+      "peak_single_pid_rss_mib": 380.3203125,
+      "topology": {
+        "worker_count_requested": 1,
+        "worker_count_observed": 1,
+        "threads_per_worker": 1,
+        "driver_pid": 15160,
+        "scheduler_pid": 15160,
+        "nanny_pids": [],
+        "worker_pids": [
+          21572
+        ],
+        "all_pids": [
+          15160,
+          21572
+        ],
+        "cluster_startup_s": 6.812182000139728,
+        "threading_env": {
+          "OMP_NUM_THREADS": "1",
+          "MKL_NUM_THREADS": "1",
+          "OPENBLAS_NUM_THREADS": "1",
+          "VECLIB_MAXIMUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": "1"
+        }
+      },
+      "task_stream": {
+        "total_tasks": 112,
+        "matmul_tasks_count": 64,
+        "reduction_tasks_count": 48,
+        "mean_matmul_duration_s": 0.0012441650032997131,
+        "mean_reduction_duration_s": 0.00020499030749003092,
+        "total_compute_s": 0.08946609497070312,
+        "total_transfer_s": 0.0,
+        "total_deserialization_s": 0.0,
+        "actions_observed": [
+          "compute"
+        ],
+        "startstops_types": [
+          "tuple"
+        ],
+        "per_worker_task_counts": {
+          "tcp://127.0.0.1:50299": {
+            "matmul": 64,
+            "add": 48,
+            "other": 0,
+            "total": 112
+          }
+        }
+      },
+      "worker_transfer_delta": {
+        "total_incoming_bytes_delta": 0,
+        "total_outgoing_bytes_delta": 0,
+        "total_incoming_count_delta": 0,
+        "total_outgoing_count_delta": 16,
+        "per_worker": {
+          "tcp://127.0.0.1:50299": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 0,
+            "outgoing_count_delta": 16
+          }
+        }
+      },
+      "overlap_ratio_compute_over_e2e": 0.24283433717593322
+    },
+    "2": {
+      "status": "COMPLETED",
+      "error_reason": null,
+      "time_e2e_s": 2.824715199880302,
+      "checksum": 250006793.22638825,
+      "object_nbytes": 72000000,
+      "dask_managed_memory_mib": 65.80352783203125,
+      "phase_breakdown_s": {
+        "partitioning_s": 0.009071699809283018,
+        "scatter_s": 0.7180212999228388,
+        "graph_submission_s": 0.488660299917683,
+        "wait_s": 1.3772821000311524,
+        "gather_s": 0.20551100000739098,
+        "assembly_s": 0.0065686998423188925,
+        "checksum_s": 0.01959310006350279
+      },
+      "worker_memory_stats": {
+        "tcp://127.0.0.1:56014": {
+          "managed_bytes": 35000000,
+          "process_bytes": 119140352,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        },
+        "tcp://127.0.0.1:56017": {
+          "managed_bytes": 34000000,
+          "process_bytes": 111550464,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        }
+      },
+      "rss_process_sum_peak_mib": 631.16015625,
+      "rss_driver_mib": 376.0703125,
+      "peak_single_pid_rss_mib": 405.6953125,
+      "topology": {
+        "worker_count_requested": 2,
+        "worker_count_observed": 2,
+        "threads_per_worker": 1,
+        "driver_pid": 15160,
+        "scheduler_pid": 15160,
+        "nanny_pids": [],
+        "worker_pids": [
+          12844,
+          19440
+        ],
+        "all_pids": [
+          12844,
+          15160,
+          19440
+        ],
+        "cluster_startup_s": 4.0175398997962475,
+        "threading_env": {
+          "OMP_NUM_THREADS": "1",
+          "MKL_NUM_THREADS": "1",
+          "OPENBLAS_NUM_THREADS": "1",
+          "VECLIB_MAXIMUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": "1"
+        }
+      },
+      "task_stream": {
+        "total_tasks": 112,
+        "matmul_tasks_count": 64,
+        "reduction_tasks_count": 48,
+        "mean_matmul_duration_s": 0.0037201233208179474,
+        "mean_reduction_duration_s": 0.0009425928195317587,
+        "total_compute_s": 0.28333234786987305,
+        "total_transfer_s": 0.18795132637023926,
+        "total_deserialization_s": 0.0,
+        "actions_observed": [
+          "compute",
+          "transfer"
+        ],
+        "startstops_types": [
+          "tuple"
+        ],
+        "per_worker_task_counts": {
+          "tcp://127.0.0.1:56014": {
+            "matmul": 33,
+            "add": 24,
+            "other": 0,
+            "total": 57
+          },
+          "tcp://127.0.0.1:56017": {
+            "matmul": 31,
+            "add": 24,
+            "other": 0,
+            "total": 55
+          }
+        }
+      },
+      "worker_transfer_delta": {
+        "total_incoming_bytes_delta": 0,
+        "total_outgoing_bytes_delta": 0,
+        "total_incoming_count_delta": 48,
+        "total_outgoing_count_delta": 65,
+        "per_worker": {
+          "tcp://127.0.0.1:56014": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 24,
+            "outgoing_count_delta": 32
+          },
+          "tcp://127.0.0.1:56017": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 24,
+            "outgoing_count_delta": 33
+          }
+        }
+      },
+      "overlap_ratio_compute_over_e2e": 0.10030474855726317
+    },
+    "4": {
+      "status": "COMPLETED",
+      "error_reason": null,
+      "time_e2e_s": 5.772098100045696,
+      "checksum": 250006793.22638825,
+      "object_nbytes": 72000000,
+      "dask_managed_memory_mib": 55.3131103515625,
+      "phase_breakdown_s": {
+        "partitioning_s": 0.14707119995728135,
+        "scatter_s": 1.0279556999448687,
+        "graph_submission_s": 0.5618187999352813,
+        "wait_s": 3.7129063000902534,
+        "gather_s": 0.29415609990246594,
+        "assembly_s": 0.006752500077709556,
+        "checksum_s": 0.021430500084534287
+      },
+      "worker_memory_stats": {
+        "tcp://127.0.0.1:56055": {
+          "managed_bytes": 14500000,
+          "process_bytes": 99422208,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        },
+        "tcp://127.0.0.1:56056": {
+          "managed_bytes": 14500000,
+          "process_bytes": 101376000,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        },
+        "tcp://127.0.0.1:56057": {
+          "managed_bytes": 14500000,
+          "process_bytes": 100687872,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        },
+        "tcp://127.0.0.1:56064": {
+          "managed_bytes": 14500000,
+          "process_bytes": 100270080,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        }
+      },
+      "rss_process_sum_peak_mib": 778.1171875,
+      "rss_driver_mib": 380.36328125,
+      "peak_single_pid_rss_mib": 409.59375,
+      "topology": {
+        "worker_count_requested": 4,
+        "worker_count_observed": 4,
+        "threads_per_worker": 1,
+        "driver_pid": 15160,
+        "scheduler_pid": 15160,
+        "nanny_pids": [],
+        "worker_pids": [
+          17556,
+          19532,
+          1276,
+          34264
+        ],
+        "all_pids": [
+          1276,
+          15160,
+          17556,
+          19532,
+          34264
+        ],
+        "cluster_startup_s": 4.000435000052676,
+        "threading_env": {
+          "OMP_NUM_THREADS": "1",
+          "MKL_NUM_THREADS": "1",
+          "OPENBLAS_NUM_THREADS": "1",
+          "VECLIB_MAXIMUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": "1"
+        }
+      },
+      "task_stream": {
+        "total_tasks": 112,
+        "matmul_tasks_count": 64,
+        "reduction_tasks_count": 48,
+        "mean_matmul_duration_s": 0.0035103000700473785,
+        "mean_reduction_duration_s": 0.0006202111641565958,
+        "total_compute_s": 0.25442934036254883,
+        "total_transfer_s": 0.1997992992401123,
+        "total_deserialization_s": 0.0,
+        "actions_observed": [
+          "compute",
+          "transfer"
+        ],
+        "startstops_types": [
+          "tuple"
+        ],
+        "per_worker_task_counts": {
+          "tcp://127.0.0.1:56055": {
+            "matmul": 16,
+            "add": 13,
+            "other": 0,
+            "total": 29
+          },
+          "tcp://127.0.0.1:56056": {
+            "matmul": 16,
+            "add": 11,
+            "other": 0,
+            "total": 27
+          },
+          "tcp://127.0.0.1:56057": {
+            "matmul": 16,
+            "add": 12,
+            "other": 0,
+            "total": 28
+          },
+          "tcp://127.0.0.1:56064": {
+            "matmul": 16,
+            "add": 12,
+            "other": 0,
+            "total": 28
+          }
+        }
+      },
+      "worker_transfer_delta": {
+        "total_incoming_bytes_delta": 0,
+        "total_outgoing_bytes_delta": 0,
+        "total_incoming_count_delta": 68,
+        "total_outgoing_count_delta": 84,
+        "per_worker": {
+          "tcp://127.0.0.1:56055": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 18,
+            "outgoing_count_delta": 19
+          },
+          "tcp://127.0.0.1:56056": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 16,
+            "outgoing_count_delta": 22
+          },
+          "tcp://127.0.0.1:56057": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 17,
+            "outgoing_count_delta": 21
+          },
+          "tcp://127.0.0.1:56064": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 17,
+            "outgoing_count_delta": 22
+          }
+        }
+      },
+      "overlap_ratio_compute_over_e2e": 0.04407917813464303
+    },
+    "8": {
+      "status": "COMPLETED",
+      "error_reason": null,
+      "time_e2e_s": 82.37880000006407,
+      "checksum": 250006793.22638825,
+      "object_nbytes": 72000000,
+      "dask_managed_memory_mib": 53.40576171875,
+      "phase_breakdown_s": {
+        "partitioning_s": 0.564027699874714,
+        "scatter_s": 27.309404300060123,
+        "graph_submission_s": 2.1325751000549644,
+        "wait_s": 27.834026500117034,
+        "gather_s": 24.02849129983224,
+        "assembly_s": 0.468014599988237,
+        "checksum_s": 0.04225199995562434
+      },
+      "worker_memory_stats": {
+        "tcp://127.0.0.1:49950": {
+          "managed_bytes": 7000000,
+          "process_bytes": 89751552,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        },
+        "tcp://127.0.0.1:49951": {
+          "managed_bytes": 7500000,
+          "process_bytes": 91734016,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        },
+        "tcp://127.0.0.1:49958": {
+          "managed_bytes": 6500000,
+          "process_bytes": 89722880,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        },
+        "tcp://127.0.0.1:49959": {
+          "managed_bytes": 7000000,
+          "process_bytes": 89141248,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        },
+        "tcp://127.0.0.1:49964": {
+          "managed_bytes": 6000000,
+          "process_bytes": 88711168,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        },
+        "tcp://127.0.0.1:49965": {
+          "managed_bytes": 7500000,
+          "process_bytes": 90161152,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        },
+        "tcp://127.0.0.1:49969": {
+          "managed_bytes": 7000000,
+          "process_bytes": 90791936,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        },
+        "tcp://127.0.0.1:49973": {
+          "managed_bytes": 7500000,
+          "process_bytes": 89976832,
+          "spilled_bytes": 0,
+          "nthreads": 1
+        }
+      },
+      "rss_process_sum_peak_mib": 1103.95703125,
+      "rss_driver_mib": 386.62109375,
+      "peak_single_pid_rss_mib": 417.31640625,
+      "topology": {
+        "worker_count_requested": 8,
+        "worker_count_observed": 8,
+        "threads_per_worker": 1,
+        "driver_pid": 15160,
+        "scheduler_pid": 15160,
+        "nanny_pids": [],
+        "worker_pids": [
+          31924,
+          15164,
+          7116,
+          6836,
+          25764,
+          16336,
+          4112,
+          2592
+        ],
+        "all_pids": [
+          2592,
+          4112,
+          6836,
+          7116,
+          15160,
+          15164,
+          16336,
+          25764,
+          31924
+        ],
+        "cluster_startup_s": 5.543757400009781,
+        "threading_env": {
+          "OMP_NUM_THREADS": "1",
+          "MKL_NUM_THREADS": "1",
+          "OPENBLAS_NUM_THREADS": "1",
+          "VECLIB_MAXIMUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": "1"
+        }
+      },
+      "task_stream": {
+        "total_tasks": 112,
+        "matmul_tasks_count": 64,
+        "reduction_tasks_count": 48,
+        "mean_matmul_duration_s": 0.003742251545190811,
+        "mean_reduction_duration_s": 0.0019911577304204306,
+        "total_compute_s": 0.3350796699523926,
+        "total_transfer_s": 0.6538643836975098,
+        "total_deserialization_s": 0.0,
+        "actions_observed": [
+          "compute",
+          "transfer"
+        ],
+        "startstops_types": [
+          "tuple"
+        ],
+        "per_worker_task_counts": {
+          "tcp://127.0.0.1:49950": {
+            "matmul": 8,
+            "add": 6,
+            "other": 0,
+            "total": 14
+          },
+          "tcp://127.0.0.1:49951": {
+            "matmul": 9,
+            "add": 8,
+            "other": 0,
+            "total": 17
+          },
+          "tcp://127.0.0.1:49958": {
+            "matmul": 8,
+            "add": 5,
+            "other": 0,
+            "total": 13
+          },
+          "tcp://127.0.0.1:49959": {
+            "matmul": 10,
+            "add": 9,
+            "other": 0,
+            "total": 19
+          },
+          "tcp://127.0.0.1:49964": {
+            "matmul": 6,
+            "add": 6,
+            "other": 0,
+            "total": 12
+          },
+          "tcp://127.0.0.1:49965": {
+            "matmul": 9,
+            "add": 5,
+            "other": 0,
+            "total": 14
+          },
+          "tcp://127.0.0.1:49969": {
+            "matmul": 7,
+            "add": 7,
+            "other": 0,
+            "total": 14
+          },
+          "tcp://127.0.0.1:49973": {
+            "matmul": 7,
+            "add": 2,
+            "other": 0,
+            "total": 9
+          }
+        }
+      },
+      "worker_transfer_delta": {
+        "total_incoming_bytes_delta": 0,
+        "total_outgoing_bytes_delta": 0,
+        "total_incoming_count_delta": 101,
+        "total_outgoing_count_delta": 117,
+        "per_worker": {
+          "tcp://127.0.0.1:49950": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 11,
+            "outgoing_count_delta": 13
+          },
+          "tcp://127.0.0.1:49951": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 17,
+            "outgoing_count_delta": 17
+          },
+          "tcp://127.0.0.1:49958": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 10,
+            "outgoing_count_delta": 14
+          },
+          "tcp://127.0.0.1:49959": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 19,
+            "outgoing_count_delta": 14
+          },
+          "tcp://127.0.0.1:49964": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 11,
+            "outgoing_count_delta": 14
+          },
+          "tcp://127.0.0.1:49965": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 12,
+            "outgoing_count_delta": 17
+          },
+          "tcp://127.0.0.1:49969": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 14,
+            "outgoing_count_delta": 14
+          },
+          "tcp://127.0.0.1:49973": {
+            "incoming_bytes_delta": 0,
+            "outgoing_bytes_delta": 0,
+            "incoming_count_delta": 7,
+            "outgoing_count_delta": 14
+          }
+        }
+      },
+      "overlap_ratio_compute_over_e2e": 0.0040675473538353555
+    },
+    "10": {
+      "status": "TIMEOUT",
+      "error_reason": "Operation timed out after 121.38 s.",
+      "topology": {
+        "worker_count_requested": 10,
+        "worker_count_observed": 10,
+        "threads_per_worker": 1,
+        "driver_pid": 15160,
+        "scheduler_pid": 15160,
+        "nanny_pids": [],
+        "worker_pids": [
+          12524,
+          21584,
+          20852,
+          12592,
+          21884,
+          16792,
+          33736,
+          3912,
+          19168,
+          14020
+        ],
+        "all_pids": [
+          3912,
+          12524,
+          12592,
+          14020,
+          15160,
+          16792,
+          19168,
+          20852,
+          21584,
+          21884,
+          33736
+        ],
+        "cluster_startup_s": 6.427638600114733,
+        "threading_env": {
+          "OMP_NUM_THREADS": "1",
+          "MKL_NUM_THREADS": "1",
+          "OPENBLAS_NUM_THREADS": "1",
+          "VECLIB_MAXIMUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": "1"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "metadata_schema_version": "1.0",
+  "run_id": "campaign_20261123_134419_732c8fbdef094de78c41b8a72a2b179c",
+  "campaign_name": "Strong Scaling Local Multi-Worker Campaign (p=10)",
+  "timestamp_utc": "2026-11-23T13:52:28.671790+00:00",
+  "status": "NOT_RUN_AFTER_TIMEOUT",
+  "failure_reason": "Cluster safely closed following timeout in sample ss_p10_1500_r5 (n=1500). Subsequent repetitions of n=1500 omitted per protocol \u00a710.1; cluster restart not authorized.",
+  "git_commit_sha": "419acd9a600177d3489f78b25ff21f9ef861e0d1",
+  "host_environment": {
+    "cpu": {
+      "processor": "Intel64 Family 6 Model 186 Stepping 3, GenuineIntel",
+      "architecture": "64bit",
+      "machine": "AMD64",
+      "physical_cores": 10,
+      "logical_cores": 12
+    },
+    "memory": {
+      "total_ram_mib": 16009.140625,
+      "available_ram_mib": 4263.35546875
+    },
+    "os": "Windows-11-10.0.26300-SP0"
+  },
+  "software_stack": {
+    "python_version": "3.14.0 (tags/v3.14.0:ebf955d, Oct  7 2025, 10:15:03) [MSC v.1944 64 bit (AMD64)]",
+    "platform_system": "Windows",
+    "platform_release": "11",
+    "platform_version": "10.0.26300",
+    "numpy_version": "2.5.4",
+    "dask_version": "2026.8.0",
+    "distributed_version": "2026.8.0",
+    "psutil_version": "7.2.2"
+  },
+  "threading_environment": {
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1"
+  },
+  "campaign_parameters": {
+    "worker_count": 10,
+    "block_size": 250,
+    "matrix_dimensions": [
+      1000,
+      1500,
+      2000
+    ],
+    "repetitions_per_dimension": 5,
+    "timeout_per_sample_s": 120.0,
+    "aggregate_rss_ceiling_mib": 2560.0,
+    "host_available_ram_floor_mib": 1024.0
+  },
+  "cluster_topology": {
+    "driver_pid": 15160,
+    "scheduler_pid": 15160,
+    "nanny_pids": [],
+    "worker_pids": [
+      27704,
+      29708,
+      8960,
+      15408,
+      6616,
+      28316,
+      34112,
+      16220,
+      13200,
+      3060
+    ],
+    "all_pids": [
+      3060,
+      6616,
+      8960,
+      13200,
+      15160,
+      15408,
+      16220,
+      27704,
+      28316,
+      29708,
+      34112
+    ],
+    "observed_worker_count": 10,
+    "threads_per_worker": 1,
+    "cluster_startup_s": 20.80402599996887
+  }
+}

@@ -1,0 +1,511 @@
+{
+  "generated_utc": "2026-11-23T13:24:10.182316+00:00",
+  "purpose": "Controlled p=1 vs p=2 functional and telemetry validation pilot (separate from primary CSV campaign)",
+  "physical_machine_count": 1,
+  "host_available_ram_start_mib": 3909.8828125,
+  "configurations": {
+    "p=1": {
+      "topology": {
+        "worker_count_requested": 1,
+        "worker_count_observed": 1,
+        "threads_per_worker": 1,
+        "driver_pid": 20292,
+        "scheduler_pid": 20292,
+        "nanny_pids": [],
+        "worker_pids": [
+          11588
+        ],
+        "all_pids": [
+          11588,
+          20292
+        ],
+        "cluster_startup_s": 3.6761977998539805,
+        "threading_env": {
+          "OMP_NUM_THREADS": "1",
+          "MKL_NUM_THREADS": "1",
+          "OPENBLAS_NUM_THREADS": "1",
+          "VECLIB_MAXIMUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": "1"
+        }
+      },
+      "unique_os_pid_count": 2,
+      "watchdog_clean_stop": true,
+      "watchdog_breach_detected": false,
+      "surviving_worker_pids_after_close": [],
+      "runs": [
+        {
+          "n": 250,
+          "repetition": 0,
+          "is_warmup": true,
+          "status": "COMPLETED",
+          "time_e2e_s": 0.2077769001480192,
+          "checksum": 3893266.1049941774,
+          "validation_passed": true,
+          "max_abs_diff": 1.1368683772161603e-13,
+          "max_rel_diff": 1.896385302446594e-15,
+          "object_nbytes": 1500000,
+          "dask_managed_memory_mib": 0.0,
+          "rss_process_sum_peak_mib": 162.16796875,
+          "rss_driver_mib": 84.0625,
+          "peak_single_pid_rss_mib": 84.0625
+        },
+        {
+          "n": 500,
+          "repetition": 0,
+          "is_warmup": true,
+          "status": "COMPLETED",
+          "time_e2e_s": 0.35989079996943474,
+          "checksum": 31312049.142420266,
+          "object_nbytes": 10000000,
+          "dask_managed_memory_mib": 5.7220458984375,
+          "phase_breakdown_s": {
+            "partitioning_s": 0.002480100141838193,
+            "scatter_s": 0.057839599903672934,
+            "graph_submission_s": 0.010348500218242407,
+            "wait_s": 0.25856940005905926,
+            "gather_s": 0.029086400056257844,
+            "assembly_s": 0.0012353998608887196,
+            "checksum_s": 0.0003198999911546707
+          },
+          "rss_process_sum_peak_mib": 174.65234375,
+          "rss_driver_mib": 85.62890625,
+          "peak_single_pid_rss_mib": 88.12109375,
+          "task_stream": {
+            "total_tasks": 12,
+            "matmul_tasks_count": 8,
+            "reduction_tasks_count": 4,
+            "mean_matmul_duration_s": 0.005482792854309082,
+            "mean_reduction_duration_s": 0.0006808042526245117,
+            "total_compute_s": 0.0465855598449707,
+            "total_transfer_s": 0.0,
+            "total_deserialization_s": 0.0,
+            "actions_observed": [
+              "compute"
+            ],
+            "startstops_types": [
+              "tuple"
+            ],
+            "per_worker_task_counts": {
+              "tcp://127.0.0.1:60648": {
+                "matmul": 8,
+                "add": 4,
+                "other": 0,
+                "total": 12
+              }
+            }
+          },
+          "worker_transfer_delta": {
+            "total_incoming_bytes_delta": 0,
+            "total_outgoing_bytes_delta": 0,
+            "total_incoming_count_delta": 0,
+            "total_outgoing_count_delta": 1,
+            "per_worker": {
+              "tcp://127.0.0.1:60648": {
+                "incoming_bytes_delta": 0,
+                "outgoing_bytes_delta": 0,
+                "incoming_count_delta": 0,
+                "outgoing_count_delta": 1
+              }
+            }
+          }
+        },
+        {
+          "n": 500,
+          "repetition": 1,
+          "is_warmup": false,
+          "status": "COMPLETED",
+          "time_e2e_s": 0.2494592999573797,
+          "checksum": 31312049.142420266,
+          "object_nbytes": 10000000,
+          "dask_managed_memory_mib": 4.291534423828125,
+          "phase_breakdown_s": {
+            "partitioning_s": 0.003777100006118417,
+            "scatter_s": 0.06527880020439625,
+            "graph_submission_s": 0.027414699783548713,
+            "wait_s": 0.12459499994292855,
+            "gather_s": 0.02594309998676181,
+            "assembly_s": 0.00199109991081059,
+            "checksum_s": 0.000452699838206172
+          },
+          "rss_process_sum_peak_mib": 177.12890625,
+          "rss_driver_mib": 85.84765625,
+          "peak_single_pid_rss_mib": 90.890625,
+          "task_stream": {
+            "total_tasks": 12,
+            "matmul_tasks_count": 8,
+            "reduction_tasks_count": 4,
+            "mean_matmul_duration_s": 0.005517721176147461,
+            "mean_reduction_duration_s": 0.00042742490768432617,
+            "total_compute_s": 0.04585146903991699,
+            "total_transfer_s": 0.0,
+            "total_deserialization_s": 0.0,
+            "actions_observed": [
+              "compute"
+            ],
+            "startstops_types": [
+              "tuple"
+            ],
+            "per_worker_task_counts": {
+              "tcp://127.0.0.1:60648": {
+                "matmul": 8,
+                "add": 4,
+                "other": 0,
+                "total": 12
+              }
+            }
+          },
+          "worker_transfer_delta": {
+            "total_incoming_bytes_delta": 0,
+            "total_outgoing_bytes_delta": 0,
+            "total_incoming_count_delta": 0,
+            "total_outgoing_count_delta": 4,
+            "per_worker": {
+              "tcp://127.0.0.1:60648": {
+                "incoming_bytes_delta": 0,
+                "outgoing_bytes_delta": 0,
+                "incoming_count_delta": 0,
+                "outgoing_count_delta": 4
+              }
+            }
+          }
+        },
+        {
+          "n": 500,
+          "repetition": 2,
+          "is_warmup": false,
+          "status": "COMPLETED",
+          "time_e2e_s": 0.21454579988494515,
+          "checksum": 31312049.142420266,
+          "object_nbytes": 10000000,
+          "dask_managed_memory_mib": 4.291534423828125,
+          "phase_breakdown_s": {
+            "partitioning_s": 0.0030509999487549067,
+            "scatter_s": 0.055322600062936544,
+            "graph_submission_s": 0.009525100002065301,
+            "wait_s": 0.11540409992448986,
+            "gather_s": 0.029032000107690692,
+            "assembly_s": 0.001812000060454011,
+            "checksum_s": 0.00039289984852075577
+          },
+          "rss_process_sum_peak_mib": 178.31640625,
+          "rss_driver_mib": 87.94140625,
+          "peak_single_pid_rss_mib": 92.48828125,
+          "task_stream": {
+            "total_tasks": 12,
+            "matmul_tasks_count": 8,
+            "reduction_tasks_count": 4,
+            "mean_matmul_duration_s": 0.0031731128692626953,
+            "mean_reduction_duration_s": 0.0005156993865966797,
+            "total_compute_s": 0.02744770050048828,
+            "total_transfer_s": 0.0,
+            "total_deserialization_s": 0.0,
+            "actions_observed": [
+              "compute"
+            ],
+            "startstops_types": [
+              "tuple"
+            ],
+            "per_worker_task_counts": {
+              "tcp://127.0.0.1:60648": {
+                "matmul": 8,
+                "add": 4,
+                "other": 0,
+                "total": 12
+              }
+            }
+          },
+          "worker_transfer_delta": {
+            "total_incoming_bytes_delta": 0,
+            "total_outgoing_bytes_delta": 0,
+            "total_incoming_count_delta": 0,
+            "total_outgoing_count_delta": 4,
+            "per_worker": {
+              "tcp://127.0.0.1:60648": {
+                "incoming_bytes_delta": 0,
+                "outgoing_bytes_delta": 0,
+                "incoming_count_delta": 0,
+                "outgoing_count_delta": 4
+              }
+            }
+          }
+        }
+      ]
+    },
+    "p=2": {
+      "topology": {
+        "worker_count_requested": 2,
+        "worker_count_observed": 2,
+        "threads_per_worker": 1,
+        "driver_pid": 20292,
+        "scheduler_pid": 20292,
+        "nanny_pids": [],
+        "worker_pids": [
+          26936,
+          12804
+        ],
+        "all_pids": [
+          12804,
+          20292,
+          26936
+        ],
+        "cluster_startup_s": 3.408478899858892,
+        "threading_env": {
+          "OMP_NUM_THREADS": "1",
+          "MKL_NUM_THREADS": "1",
+          "OPENBLAS_NUM_THREADS": "1",
+          "VECLIB_MAXIMUM_THREADS": "1",
+          "NUMEXPR_NUM_THREADS": "1"
+        }
+      },
+      "unique_os_pid_count": 3,
+      "watchdog_clean_stop": true,
+      "watchdog_breach_detected": false,
+      "surviving_worker_pids_after_close": [],
+      "runs": [
+        {
+          "n": 250,
+          "repetition": 0,
+          "is_warmup": true,
+          "status": "COMPLETED",
+          "time_e2e_s": 0.2714325999841094,
+          "checksum": 3893266.1049941774,
+          "validation_passed": true,
+          "max_abs_diff": 1.1368683772161603e-13,
+          "max_rel_diff": 1.896385302446594e-15,
+          "object_nbytes": 1500000,
+          "dask_managed_memory_mib": 0.0,
+          "rss_process_sum_peak_mib": 244.3359375,
+          "rss_driver_mib": 89.65234375,
+          "peak_single_pid_rss_mib": 89.65234375
+        },
+        {
+          "n": 500,
+          "repetition": 0,
+          "is_warmup": true,
+          "status": "COMPLETED",
+          "time_e2e_s": 0.2789440001361072,
+          "checksum": 31312049.142420266,
+          "object_nbytes": 10000000,
+          "dask_managed_memory_mib": 12.39776611328125,
+          "phase_breakdown_s": {
+            "partitioning_s": 0.0026356999296694994,
+            "scatter_s": 0.07553840009495616,
+            "graph_submission_s": 0.005760599859058857,
+            "wait_s": 0.0926175001077354,
+            "gather_s": 0.08122739987447858,
+            "assembly_s": 0.02042730012908578,
+            "checksum_s": 0.0007297999691218138
+          },
+          "rss_process_sum_peak_mib": 263.8515625,
+          "rss_driver_mib": 88.73828125,
+          "peak_single_pid_rss_mib": 97.01171875,
+          "task_stream": {
+            "total_tasks": 12,
+            "matmul_tasks_count": 8,
+            "reduction_tasks_count": 4,
+            "mean_matmul_duration_s": 0.003936290740966797,
+            "mean_reduction_duration_s": 0.0006084442138671875,
+            "total_compute_s": 0.033924102783203125,
+            "total_transfer_s": 0.034496307373046875,
+            "total_deserialization_s": 0.0,
+            "actions_observed": [
+              "compute",
+              "transfer"
+            ],
+            "startstops_types": [
+              "tuple"
+            ],
+            "per_worker_task_counts": {
+              "tcp://127.0.0.1:60668": {
+                "matmul": 4,
+                "add": 2,
+                "other": 0,
+                "total": 6
+              },
+              "tcp://127.0.0.1:60671": {
+                "matmul": 4,
+                "add": 2,
+                "other": 0,
+                "total": 6
+              }
+            }
+          },
+          "worker_transfer_delta": {
+            "total_incoming_bytes_delta": 0,
+            "total_outgoing_bytes_delta": 500000,
+            "total_incoming_count_delta": 7,
+            "total_outgoing_count_delta": 9,
+            "per_worker": {
+              "tcp://127.0.0.1:60668": {
+                "incoming_bytes_delta": 0,
+                "outgoing_bytes_delta": 0,
+                "incoming_count_delta": 4,
+                "outgoing_count_delta": 4
+              },
+              "tcp://127.0.0.1:60671": {
+                "incoming_bytes_delta": 0,
+                "outgoing_bytes_delta": 500000,
+                "incoming_count_delta": 3,
+                "outgoing_count_delta": 5
+              }
+            }
+          }
+        },
+        {
+          "n": 500,
+          "repetition": 1,
+          "is_warmup": false,
+          "status": "COMPLETED",
+          "time_e2e_s": 0.3064874999690801,
+          "checksum": 31312049.142420266,
+          "object_nbytes": 10000000,
+          "dask_managed_memory_mib": 5.7220458984375,
+          "phase_breakdown_s": {
+            "partitioning_s": 0.004317099926993251,
+            "scatter_s": 0.08423059992492199,
+            "graph_submission_s": 0.012236899929121137,
+            "wait_s": 0.1599483999889344,
+            "gather_s": 0.04362579993903637,
+            "assembly_s": 0.001206899993121624,
+            "checksum_s": 0.0009135000873357058
+          },
+          "rss_process_sum_peak_mib": 259.41796875,
+          "rss_driver_mib": 88.93359375,
+          "peak_single_pid_rss_mib": 93.50390625,
+          "task_stream": {
+            "total_tasks": 12,
+            "matmul_tasks_count": 8,
+            "reduction_tasks_count": 4,
+            "mean_matmul_duration_s": 0.005074948072433472,
+            "mean_reduction_duration_s": 0.0006299614906311035,
+            "total_compute_s": 0.04311943054199219,
+            "total_transfer_s": 0.033464670181274414,
+            "total_deserialization_s": 0.0,
+            "actions_observed": [
+              "compute",
+              "transfer"
+            ],
+            "startstops_types": [
+              "tuple"
+            ],
+            "per_worker_task_counts": {
+              "tcp://127.0.0.1:60668": {
+                "matmul": 4,
+                "add": 2,
+                "other": 0,
+                "total": 6
+              },
+              "tcp://127.0.0.1:60671": {
+                "matmul": 4,
+                "add": 2,
+                "other": 0,
+                "total": 6
+              }
+            }
+          },
+          "worker_transfer_delta": {
+            "total_incoming_bytes_delta": 0,
+            "total_outgoing_bytes_delta": 0,
+            "total_incoming_count_delta": 2,
+            "total_outgoing_count_delta": 5,
+            "per_worker": {
+              "tcp://127.0.0.1:60668": {
+                "incoming_bytes_delta": 0,
+                "outgoing_bytes_delta": 0,
+                "incoming_count_delta": 1,
+                "outgoing_count_delta": 3
+              },
+              "tcp://127.0.0.1:60671": {
+                "incoming_bytes_delta": 0,
+                "outgoing_bytes_delta": 0,
+                "incoming_count_delta": 1,
+                "outgoing_count_delta": 2
+              }
+            }
+          }
+        },
+        {
+          "n": 500,
+          "repetition": 2,
+          "is_warmup": false,
+          "status": "COMPLETED",
+          "time_e2e_s": 0.22140610008500516,
+          "checksum": 31312049.142420266,
+          "object_nbytes": 10000000,
+          "dask_managed_memory_mib": 1.9073486328125,
+          "phase_breakdown_s": {
+            "partitioning_s": 0.0028572999872267246,
+            "scatter_s": 0.07930519990622997,
+            "graph_submission_s": 0.04584840009920299,
+            "wait_s": 0.06735170003958046,
+            "gather_s": 0.02455440000630915,
+            "assembly_s": 0.0011587999761104584,
+            "checksum_s": 0.00032350001856684685
+          },
+          "rss_process_sum_peak_mib": 259.29296875,
+          "rss_driver_mib": 91.96875,
+          "peak_single_pid_rss_mib": 95.4375,
+          "task_stream": {
+            "total_tasks": 12,
+            "matmul_tasks_count": 8,
+            "reduction_tasks_count": 4,
+            "mean_matmul_duration_s": 0.004408687353134155,
+            "mean_reduction_duration_s": 0.0012589693069458008,
+            "total_compute_s": 0.040305376052856445,
+            "total_transfer_s": 0.021450281143188477,
+            "total_deserialization_s": 0.0,
+            "actions_observed": [
+              "compute",
+              "transfer"
+            ],
+            "startstops_types": [
+              "tuple"
+            ],
+            "per_worker_task_counts": {
+              "tcp://127.0.0.1:60668": {
+                "matmul": 3,
+                "add": 2,
+                "other": 0,
+                "total": 5
+              },
+              "tcp://127.0.0.1:60671": {
+                "matmul": 5,
+                "add": 2,
+                "other": 0,
+                "total": 7
+              }
+            }
+          },
+          "worker_transfer_delta": {
+            "total_incoming_bytes_delta": 0,
+            "total_outgoing_bytes_delta": 0,
+            "total_incoming_count_delta": 4,
+            "total_outgoing_count_delta": 8,
+            "per_worker": {
+              "tcp://127.0.0.1:60668": {
+                "incoming_bytes_delta": 0,
+                "outgoing_bytes_delta": 0,
+                "incoming_count_delta": 2,
+                "outgoing_count_delta": 4
+              },
+              "tcp://127.0.0.1:60671": {
+                "incoming_bytes_delta": 0,
+                "outgoing_bytes_delta": 0,
+                "incoming_count_delta": 2,
+                "outgoing_count_delta": 4
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "p1_vs_p2_c500_cross_validation": {
+    "passed": true,
+    "elements_compared": 250000,
+    "max_abs_diff": 0.0,
+    "max_rel_diff": 0.0,
+    "atol": 1e-09,
+    "rtol": 1e-12
+  }
+}

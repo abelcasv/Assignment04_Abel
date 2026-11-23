@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "generated_utc": "2026-11-23T13:25:55.023022+00:00",
+  "dec_01_authorization_file": "docs/decisions/DEC-01-instructor-permission.md",
+  "physical_machine_count": 1,
+  "block_size": 250,
+  "sizes": [
+    1000,
+    1500,
+    2000
+  ],
+  "repetitions_per_dimension": 5,
+  "worker_counts_planned": [
+    1,
+    2,
+    4,
+    8,
+    10
+  ],
+  "runs": [
+    {
+      "worker_count": 1,
+      "run_id": "campaign_20261123_132555_4e196b9114914be79c19cbdc838b9a13",
+      "sidecar_path": "results/metadata/sidecar_campaign_20261123_132555_4e196b9114914be79c19cbdc838b9a13.json",
+      "total_samples": 18,
+      "completed_samples": 18,
+      "failed_samples": 0,
+      "session_duration_s": 140.1291906000115
+    },
+    {
+      "worker_count": 2,
+      "run_id": "campaign_20261123_132816_17542d5a8b3b40a6b8882965174b93f0",
+      "sidecar_path": "results/metadata/sidecar_campaign_20261123_132816_17542d5a8b3b40a6b8882965174b93f0.json",
+      "total_samples": 18,
+      "completed_samples": 18,
+      "failed_samples": 0,
+      "session_duration_s": 145.74104849994183
+    },
+    {
+      "worker_count": 4,
+      "run_id": "campaign_20261123_133043_588dc09eef8c4aeba84b377b76b1b47f",
+      "sidecar_path": "results/metadata/sidecar_campaign_20261123_133043_588dc09eef8c4aeba84b377b76b1b47f.json",
+      "total_samples": 18,
+      "completed_samples": 18,
+      "failed_samples": 0,
+      "session_duration_s": 320.9526893000584
+    },
+    {
+      "worker_count": 8,
+      "run_id": "campaign_20261123_133606_d9e4a2d1514c409fb79f16772c5ece29",
+      "sidecar_path": "results/metadata/sidecar_campaign_20261123_133606_d9e4a2d1514c409fb79f16772c5ece29.json",
+      "total_samples": 18,
+      "completed_samples": 18,
+      "failed_samples": 0,
+      "session_duration_s": 491.7887001000345
+    },
+    {
+      "worker_count": 10,
+      "run_id": "campaign_20261123_134419_732c8fbdef094de78c41b8a72a2b179c",
+      "sidecar_path": "results/metadata/sidecar_campaign_20261123_134419_732c8fbdef094de78c41b8a72a2b179c.json",
+      "total_samples": 18,
+      "completed_samples": 5,
+      "failed_samples": 13,
+      "session_duration_s": 489.71870590001345
+    }
+  ]
+}
