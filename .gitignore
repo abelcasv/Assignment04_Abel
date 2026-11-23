@@ -34,6 +34,13 @@ build/bin/
 build/a1_runtime/
 build/a3_runtime/
 
+# LaTeX auxiliary build outputs (PDF remains tracked)
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.synctex.gz
+
 # Python virtual environments, bytecode, and caches
 .venv/
 env/

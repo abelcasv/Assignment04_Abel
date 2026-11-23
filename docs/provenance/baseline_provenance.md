@@ -30,12 +30,14 @@ Para cumplir con la directiva de no introducir submódulos Git ni historiales co
 | `baselines/a3_openmp/parallel_benchmark.c` | `external_repos/Assignment03/src/parallel_benchmark.c` | `23cffbc82c155b6c3de24b3c149b509b63fc870b` | `6da20a3aed0862adc296fe9f4c8625bc51cd777959a5403088f7960c8741dbc8` | **IDÉNTICO** |
 | `baselines/a3_openmp/Makefile` | `external_repos/Assignment03/src/Makefile` | `23cffbc82c155b6c3de24b3c149b509b63fc870b` | `474e4d2f2b57a5696bd8202ac0e125b101dbe6bcd5f58bd92df2a23f8a37e364` | **IDÉNTICO** |
 
+> **Preservación de fines de línea (`.gitattributes`):** Estos resúmenes SHA-256 corresponden a los ficheros originales exactos con finales de línea CRLF. El atributo `baselines/** -text` (junto con `data/baselines/** -text`) en `.gitattributes` evita la normalización automática de fines de línea entre clones o sistemas operativos y garantiza su integridad byte a byte.
+
 ---
 
 ## 3. Especificación Técnica de los Baselines Reutilizados
 
 ### 3.1 Baseline Secuencial Canónico (Assignment 1)
-- **Función Reutilizada:** `multiply(const double* a, const double* b, double* c, int n)` ([benchmark.c](file:///c:/Users/abelc/OneDrive/Documentos/Universidad%2026-27/BD/Assignment04_Abel/baselines/a1_sequential/benchmark.c#L48-L59)).
+- **Función Reutilizada:** `multiply(const double* a, const double* b, double* c, int n)` ([benchmark.c](../../baselines/a1_sequential/benchmark.c#L48-L59)).
 - **Algoritmo:** Triple bucle anidado $i-j-k$ canónico sin optimizaciones de caché ($O(n^3)$ operaciones aritméticas).
 - **Tipo Numérico y Disposición:** IEEE 754 `binary64` (`double`), arreglo 1D contiguo en memoria dinámica indexado como `matrix[i * n + j]`.
 - **Opciones de Compilación (`CFLAGS`):** `-Wall -Wextra -O3 -std=c11`
@@ -64,10 +66,11 @@ Dado que los ejecutables originales buscan rutas fijas relativas a su argumento 
 - **Archivos Suministrados:**
   - Matrices densas comunes: `A_100.csv`, `B_100.csv`, `A_250.csv`, `B_250.csv`, `A_500.csv`, `B_500.csv`, `A_750.csv`, `B_750.csv`, `A_1000.csv`, `B_1000.csv`.
   - Fixtures de validación originales de A1: `identity_4.csv`, `zero_4.csv`, `known_A_4.csv`, `known_B_4.csv`, `expected_C_4.csv`.
-- **Mecanismo de Ejecución:** El ejecutable original de A1 se invoca pasando `build/a1_runtime` como `argv[1]`:
+- **Mecanismo de Ejecución:** El ejecutable compilado de A1 en `build/bin/` se invoca pasando `build/a1_runtime` como `argv[1]` (sin situar binarios ni salidas dentro de `baselines/`):
   ```powershell
-  ./baselines/a1_sequential/benchmark.exe ../../build/a1_runtime
+  ./build/bin/a1_benchmark.exe build/a1_runtime
   ```
+- **Resumen Histórico Versionado:** Una copia exacta byte-a-byte del CSV histórico de resultados de A1 (`8d3662f2...`) se versiona en `data/baselines/a1_summary.csv` para garantizar reproducibilidad en un clon limpio.
 - **Tamaños Fijos y Dimensión Auxiliar $n=100$:**
   - El ejecutable de A1 tiene fijada en su código la lista `SIZES = {100, 250, 500, 750, 1000}`.
   - La dimensión $n=100$ se incluye como dimensión auxiliar de compatibilidad para permitir que el ejecutable de A1 complete su ciclo sin errores.
@@ -82,16 +85,17 @@ Dado que los ejecutables originales buscan rutas fijas relativas a su argumento 
 - **Archivos Suministrados:**
   - Matrices densas comunes: `A_<n>.csv` y `B_<n>.csv` para $n \in \{250, 500, 750, 1000, 1500, 2000\}$.
   - Fixtures de validación exactos de A3: `identity_4.csv`, `zero_4.csv`, `known_A_4.csv`, `known_B_4.csv`, `expected_C_4.csv` (hashes certificados en `A3_RUNTIME_MANIFEST.txt`).
-- **Mecanismo de Ejecución:** El ejecutable original de A3 se invoca pasando `build/a3_runtime` como argumento:
+- **Mecanismo de Ejecución:** El ejecutable compilado de A3 en `build/bin/` se invoca pasando `build/a3_runtime` como argumento (sin situar binarios ni salidas dentro de `baselines/`):
   ```powershell
-  ./baselines/a3_openmp/parallel_benchmark.exe ../../build/a3_runtime
+  ./build/bin/a3_parallel_benchmark.exe build/a3_runtime
   ```
+- **Resumen Histórico Versionado:** Una copia exacta byte-a-byte del CSV histórico de resultados de A3 (`046773fd...`) se versiona en `data/baselines/a3_parallel_results_summary.csv` para garantizar reproducibilidad en un clon limpio.
 
 ---
 
 ## 5. Especificación y Verificación del Dataset Común
 
-El generador determinista ([scripts/generate_dataset.py](file:///c:/Users/abelc/OneDrive/Documentos/Universidad%2026-27/BD/Assignment04_Abel/scripts/generate_dataset.py)) implementa las siguientes reglas:
+El generador determinista ([scripts/generate_dataset.py](../../scripts/generate_dataset.py)) implementa las siguientes reglas:
 1. **Semilla Aislada por Dimensión:** $\text{seed}(n) = 42 + n$, utilizando `random.Random` de la biblioteca estándar de Python (Mersenne Twister MT19937). Esto desacopla las dimensiones, evitando que la adición o eliminación de un tamaño altere los números pseudoaleatorios de las demás matrices.
 2. **Rango de Valores:** $[0.0, 1.0)$ generado mediante `rng.random()`.
 3. **Orden de Generación:** $A$ en orden *row-major*, seguido de $B$ en orden *row-major*.
@@ -106,7 +110,7 @@ El generador determinista ([scripts/generate_dataset.py](file:///c:/Users/abelc/
 
 ## 6. Inventario Completo y Checksums SHA-256 (`data/SHA256SUMS.txt`)
 
-Todos los archivos generados fueron certificados con SHA-256 en [data/SHA256SUMS.txt](file:///c:/Users/abelc/OneDrive/Documentos/Universidad%2026-27/BD/Assignment04_Abel/data/SHA256SUMS.txt) y verificados de forma independiente por [scripts/verify_dataset.py](file:///c:/Users/abelc/OneDrive/Documentos/Universidad%2026-27/BD/Assignment04_Abel/scripts/verify_dataset.py):
+Todos los archivos generados fueron certificados con SHA-256 en [data/SHA256SUMS.txt](../../data/SHA256SUMS.txt) y verificados de forma independiente por [scripts/verify_dataset.py](../../scripts/verify_dataset.py):
 
 | Archivo Relativo | Rol en Assignment 4 | Dimensiones | SHA-256 Checksum |
 |---|---|---|---|

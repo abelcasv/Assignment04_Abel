@@ -23,3 +23,7 @@
 *.tar binary
 *.gz binary
 *.pkl binary
+
+# Preserve exact byte-for-byte CRLF snapshots for certified baseline sources and summaries
+baselines/** -text
+data/baselines/** -text
