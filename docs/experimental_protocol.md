@@ -31,9 +31,9 @@ Para evitar ambigüedades en las que las reglas de ingeniería parezcan anular l
 | Multiplicación por bloques 2D y reducción en árbol | Arquitectura aprobada como diseño de referencia; su implementación se realizará en Phase 4. |
 | Topología local `LocalCluster`, procesos y un hilo por worker | Topología de referencia aprobada para el entorno conocido. |
 | `p=1` en una máquina | Configuración de diseño disponible; el runtime real se verificará en la fase de entorno (Gate G7). |
-| `p>1` en una máquina local | **BLOCKED** hasta disponer de permiso explícito de la profesora, registrado en `docs/decisions/` (DEC-01). |
+| `p>1` en una máquina local | **AUTORIZADA (2026-11-23, DEC-01)** *(históricamente `BLOCKED` en Phases 1–10)* mediante `docs/decisions/DEC-01-instructor-permission.md`; exclusivamente 1 máquina física (`physical_machine_count=1`). |
 | Multinodo real | No hay infraestructura multinodo acreditada actualmente; **BLOCKED / NOT AVAILABLE** hasta identificarla y aprobarla. |
-| Strong scaling obligatorio | **BLOCKED / NOT COMPLETED** mientras `p>1` carezca de permiso y no exista multinodo real. |
+| Strong scaling obligatorio | **COMPLETADO en modo local multiproceso (1 máquina física, 2026-11-23)** bajo DEC-01 (`p ∈ {1, 2, 4, 8}` completos; `p=10` detenido por timeout `131.92 s > 120 s` en `n=1500` rep 5). Escalado multinodo permanece **BLOCKED / NOT AVAILABLE**. |
 | Inputs, A1/A3 y sus snapshots | Congelados en Phase 2.1; inmutables; no regenerar ni modificar. |
 | Weak scaling | Extensión opcional aplazada; **BLOCKED**; no forma parte de la campaña principal. |
 | Implementación, instalación, compilación y mediciones | No autorizadas por esta fase de diseño. |
@@ -174,11 +174,11 @@ La máquina conocida es un único host Windows 11 con Intel Core i5-1335U, 10 n�
 
 | Configuración | Workers solicitados | Máquinas físicas | Estado |
 |---|---:|---:|---|
-| Local `p=1` | 1 | 1 | Configuración de referencia diseñada; topología real pendiente de verificación en G7. |
-| Local `p=2` | 2 | 1 | **BLOCKED — permiso de profesora DEC-01.** |
-| Local `p=4` | 4 | 1 | **BLOCKED — permiso de profesora DEC-01.** |
-| Local `p=8` | 8 | 1 | **BLOCKED — permiso de profesora DEC-01.** |
-| Local `p=10` | 10 | 1 | **BLOCKED — permiso de profesora DEC-01.** No se denominará «saturación» sin evidencia. |
+| Local `p=1` | 1 | 1 | Autorizada y ejecutada (Phase 8 y referencia base de strong scaling). |
+| Local `p=2` | 2 | 1 | **AUTORIZADA (2026-11-23, DEC-01)** *(antes BLOCKED en Phases 1–10)* — 1 máquina física, sockets loopback. |
+| Local `p=4` | 4 | 1 | **AUTORIZADA (2026-11-23, DEC-01)** *(antes BLOCKED en Phases 1–10)* — 1 máquina física (P+E cores). |
+| Local `p=8` | 8 | 1 | **AUTORIZADA (2026-11-23, DEC-01)** *(antes BLOCKED en Phases 1–10)* — 1 máquina física, bajo watchdog RSS/RAM. |
+| Local `p=10` | 10 | 1 | **AUTORIZADA (2026-11-23, DEC-01)** *(antes BLOCKED en Phases 1–10)* — 10 núcleos físicos; bajo watchdog RSS/RAM, sin denominarla «saturación» sin evidencia. |
 | Multinodo | Por determinar | 2 o más | **BLOCKED — no hay clúster físico/cloud acreditado.** Requiere una decisión de topología separada. |
 
 En Dask se propone `LocalCluster(n_workers=p, threads_per_worker=1, processes=True)`. En Windows, el punto de entrada que cree el cluster deberá estar protegido por `if __name__ == "__main__":` debido al modelo de creación de procesos.
@@ -481,14 +481,14 @@ La tolerancia se validará en Phase 5 frente a la referencia y las implementacio
 
 ## 10. Presupuestos, límites y tratamiento de fallos
 
-### 10.1 Timeout
+### 10.1 Timeout por muestra
 
-- Dask: timeout de **120 s por multiplicación end-to-end**.
-- Baselines C: durante Phase 4 se comprobará si el harness admite aislar cada tamaño/método sin modificarlo. Si no, el límite de 120 s se aplicará a la invocación completa y el estado de cada tamaño se derivará únicamente de salidas realmente producidas. No se afirmará un timeout por tamaño cuando solo se ha limitado el proceso completo.
-- Al expirar el timeout: cancelar el trabajo, cerrar el cluster/proceso de forma segura, guardar `status=TIMEOUT`, `timeout_limit_s` y `elapsed_until_abort_s`. `time_e2e_s` queda nulo para la muestra no completada.
-- Después de un timeout se omiten las repeticiones restantes de esa configuración, salvo que una revisión técnica y una autorización posterior permitan reanudarla.
+- **Valor adoptado:** **120 segundos por multiplicación end-to-end**.
+- **Naturaleza del límite:** Es un **límite de seguridad operacional seleccionado por el estudiante** y un **límite provisional validado empíricamente en el piloto**. No debía describirse como empíricamente validado antes de que el piloto confirmase que las dimensiones seleccionadas se ejecutan dentro de este margen.
+- **Baselines C:** Durante la preparación/auditoría de ejecución se comprobará si los ejecutables admiten aislar cada tamaño/método por argumentos sin modificar los fuentes congelados. Si no, el límite se aplicará a la invocación completa y el estado de cada tamaño se derivará únicamente de salidas efectivamente producidas (nunca se afirmará un timeout por tamaño cuando solo se ha limitado el proceso completo).
+- **Acción ante timeout:** Cancelar inmediatamente las tareas pendientes, cerrar el cluster/proceso de forma segura, registrar `status=TIMEOUT`, `timeout_limit_s=120.0` y `elapsed_until_abort_s`. `time_e2e_s` queda nulo para la muestra fallida y se omiten las repeticiones restantes de esa configuración (`NOT_RUN_AFTER_TIMEOUT`), salvo que una revisión técnica y autorización posterior permitan reanudarla.
 
-### 10.2 Presupuesto temporal global
+### 10.2 Presupuesto temporal global de campaña
 
 La campaña máxima de referencia incluye:
 
@@ -496,29 +496,12 @@ La campaña máxima de referencia incluye:
 - A3: `seq_ikj` y `omp_ikj` en seis dimensiones;
 - A3 `omp_tiled_b32`: secundario, solo si el presupuesto restante lo permite, en tamaños comunes;
 - Dask: `p=1` en los seis tamaños; además, para el strong scaling, `p={2,4,8,10}` en `n={1000,1500,2000}` solo si cada configuración está autorizada.
-- un warm-up y cinco repeticiones medidas por configuración.
+- Un warm-up y cinco repeticiones medidas por configuración.
 
-El núcleo (sin la variante tiled secundaria) suma 35 grupos de configuración en el escenario completo autorizado: 5 A1 + 12 A3 (dos métodos × seis tamaños) + 18 Dask (seis tamaños a p=1 y doce combinaciones extra de p>1 para los tres tamaños de strong scaling). Son 210 ejecuciones de muestra contando warm-up. La variante tiled secundaria añade hasta cuatro grupos (24 muestras).
-
-Con 120 s como límite por muestra, el máximo aritmético conservador es 7 h para el núcleo y 7 h 48 min incluyendo la variante tiled secundaria. Se fija un **tope global de campaña de 10 horas de reloj**, que incluye warm-ups, medidas, startup Dask, diagnósticos y limpieza. Compilación y validación de corrección pertenecen a fases diferentes y no se mezclarán con esta campaña.
-
-Si se alcanza el tope global, se detendrá la campaña y se informarán las configuraciones restantes como `NOT_RUN_BUDGET`; no se ampliará el presupuesto automáticamente.
-
-Si `p>1` continúa bloqueado, el número real de configuraciones Dask se reduce a los seis tamaños con `p=1`. En ese escenario no existe una campaña de strong scaling multinivel.
-
-### 10.1 Timeout por muestra
-
-- **Valor adoptado:** **120 segundos por multiplicación end-to-end**.
-- **Naturaleza del límite:** Es un **límite de seguridad operacional seleccionado por el estudiante** y un **límite provisional que requiere validación empírica en el piloto**. No debe describirse como un presupuesto empíricamente validado hasta que las mediciones reales del piloto demuestren que las dimensiones seleccionadas se ejecutan dentro de este margen.
-- **Baselines C:** Durante Phase 5 se comprobará si los ejecutables admiten aislar cada tamaño por argumentos. Si no, el límite se aplicará a la invocación completa y el estado de cada tamaño se derivará de salidas efectivamente producidas.
-- **Acción ante timeout:** Cancelar inmediatamente las tareas pendientes, cerrar el cluster/proceso, registrar `status=TIMEOUT`, `timeout_limit_s=120.0` y `elapsed_until_abort_s`. `time_e2e_s` queda nulo para la muestra fallida. Omitir repeticiones restantes de esa configuración.
-
-### 10.2 Presupuesto temporal global de campaña
-
-- **Valor adoptado:** **Tope global de 10 horas de reloj**.
+- **Valor adoptado:** **Tope global de 10 horas de reloj** (que incluye warm-ups, medidas, startup Dask, diagnósticos y limpieza; compilación y validación de corrección pertenecen a fases diferentes).
 - **Naturaleza del límite:** Es un **límite de seguridad operacional y envolvente de planificación seleccionado por el estudiante** para acotar la duración de la batería de pruebas en el host personal. No es una cota empírica demostrada.
-- **Composición:** Con 120 s como límite por muestra sobre las 35 configuraciones del núcleo (210 muestras de 1 warm-up + 5 medidas), el máximo aritmético conservador es de 7 h (o 7 h 48 min con la variante tiled). El margen de 10 h absorbe arranques Dask, recolección de diagnósticos y pausas térmicas.
-- **Acción ante agotamiento:** Si se alcanzan las 10 h, la campaña se detiene inmediatamente y las configuraciones no iniciadas se marcan como `NOT_RUN_BUDGET`. El presupuesto no se amplía automáticamente.
+- **Composición:** El núcleo (sin la variante tiled secundaria) suma 35 grupos de configuración en el escenario completo autorizado: 5 A1 + 12 A3 (dos métodos × seis tamaños) + 18 Dask (seis tamaños a `p=1` y doce combinaciones extra de `p>1` para los tres tamaños de strong scaling), totalizando 210 muestras (1 warm-up + 5 medidas). La variante tiled secundaria añade hasta cuatro grupos (24 muestras). Con 120 s como límite por muestra, el máximo aritmético conservador es de 7 h para el núcleo (o 7 h 48 min con la variante tiled); el margen hasta 10 h absorbe arranques Dask, diagnósticos y pausas térmicas.
+- **Acción ante agotamiento y escenario bloqueado:** Si se alcanzan las 10 h, la campaña se detiene inmediatamente y las configuraciones no iniciadas se marcan como `NOT_RUN_BUDGET`; el presupuesto no se amplía automáticamente. Si `p>1` continúa bloqueado bajo DEC-01, las configuraciones Dask se reducen a los seis tamaños con `p=1` y no existe campaña de strong scaling multinivel.
 
 ### 10.3 Presupuesto de memoria, semántica de watchdog y procedimiento de parada
 
@@ -584,7 +567,7 @@ Conforme a la autorización estudiantil independiente de la Etapa 1 (formalizaci
 #### 2. Presupuestos y límites operacionales del piloto:
 - **Taxonomía formal y distinción de límites temporales:**
   1. **Presupuesto temporal global de sesión (900.0 s):** Límite monotónico global que cubre todo el ciclo de vida (`session_start + 900.0 s`), incluyendo lectura de matrices, arranque del cluster, 6 ejecuciones, validación y serialización. Su agotamiento cancela la sesión de forma inmediata y marca todas las muestras incompletas como `ABORTED_BUDGET`.
-  2. **Timeout individual por muestra (120.0 s):** Límite estricto aplicado exclusivamente a la multiplicación distribuida end-to-end ($T_{\text{Dask\_e2e}}$). Su superación marca la muestra como `TIMEOUT` y cancela las repeticiones restantes de esa dimensión (`NOT_RUN_TIMEOUT`).
+  2. **Timeout individual por muestra (120.0 s):** Límite estricto aplicado exclusivamente a la multiplicación distribuida end-to-end ($T_{\text{Dask\_e2e}}$). Su superación marca la muestra como `TIMEOUT` y cancela las repeticiones restantes de esa dimensión (`NOT_RUN_AFTER_TIMEOUT`).
   3. **Timeout de arranque de cluster (60.0 s nominales o remanente de sesión):** Límite aplicado a la conexión del Client y registro de workers (`wait_for_workers`). Si el arranque falla o agota sus 60 s mientras resta presupuesto global, se clasifica rigurosamente como `FAILED` (no como `ABORTED_BUDGET`).
   4. **Construcción síncrona no interrumpible de `LocalCluster`:** La llamada a `LocalCluster(...)` en Dask es síncrona y no dispone de parámetro de timeout nativo en la API de Dask. Su ejecución (~0.5–2.0 s) no puede interrumpirse preventivamente a mitad de llamada; el arnés detecta el rebasamiento a posteriori tras su retorno y dispara el cierre inmediato en caso de overrun.
   5. **Timeout nominal de limpieza ($\le 5.0$ s) frente a latencias del SO:** El desmontaje ordenado (`ClusterManager.close()` y safe-stop del watchdog) comparte un plazo unificado nominal de hasta 5.0 s para cerrar Client, Cluster y terminar procesos hijos (`terminate()` y `kill()`), excluyendo estrictamente el PID del driver. Debido a la latencia de conmutación y terminación de procesos en el SO (Windows), puede observarse un retraso residual de decenas de milisegundos (~5.0 a 5.2 s), constituyendo una envolvente de seguridad software y no una cota dura de tiempo real.
@@ -602,14 +585,14 @@ Conforme a la autorización estudiantil independiente de la Etapa 1 (formalizaci
 - **Fases excluidas del timer de muestra (pero incluidas en el presupuesto global de 900 s):**
   - Fuera del timer (previo): Arranque del cluster Dask (`cluster_startup_s`) y lectura de ficheros CSV desde disco a arrays NumPy en el driver (`input_load_s`).
   - Fuera del timer (posterior):
-    - Para $n=250$: Verificación numérica elemento a elemento contra el fixture analítico (`data/validation/reference/C_250.csv`) con tolerancias `atol=1e-9` y `rtol=1e-12`.
+    - Para $n=250$: Verificación numérica elemento a elemento contra la referencia numérica calculada (`data/validation/reference/C_250.csv`) con tolerancias `atol=1e-9` y `rtol=1e-12`.
     - Para $n=500$: Verificación de finitud (ausencia de NaN/Inf) y comprobación de determinismo de checksums entre repeticiones medidas 1 y 2. Al no existir un fichero congelado `C_500.csv` en el repositorio, esta verificación se reporta con rigor como un **control parcial de invariantes** conforme a §9.3, no como una prueba matemática completa contra ground-truth analítico.
     - Registro de telemetría de red/memoria y serialización append-only a disco.
 
 #### 4. Política estricta de registro y metadatos:
 - **Adición no destructiva (*append-only*):** Las observaciones se agregan exclusivamente al final de `results/raw/raw_measurements.csv` sin sobrescribir ni truncar datos previos.
 - **Identificación de warm-ups:** Cada warm-up se registra explícitamente con `is_warmup=true` y `repetition=0`, quedando inequívocamente aislado y excluido de los resúmenes estadísticos posteriores (medianas e IQRs de tiempo).
-- **Trazabilidad de metadatos:** Se genera un fichero companion JSON en `results/metadata/sidecar_pilot_<timestamp>.json` con identificador único de ejecución `run_id = f"pilot_{timestamp}_{uuid.uuid4().hex}"` (UUIDv4 aportando 122 bits aleatorios de entropía en representación de 32 caracteres hexadecimales, conforme a RFC 4122 §4.4) registrando la jerarquía de PIDs, hardware, SO, versiones del stack, límites del piloto y estado final (`status`, `failure_reason`). Si ocurre un fallo en arranque o ejecución, el sidecar captura los PIDs disponibles y el estado de error; su generación se ejecuta durante el desmontaje final fuera de los timers de cómputo.
+- **Trazabilidad de metadatos:** Se genera un fichero companion JSON en `results/metadata/sidecar_{run_id}.json` con identificador único de ejecución (`run_id = f"pilot_{timestamp}_{uuid.uuid4().hex}"` para piloto o `f"campaign_{timestamp}_{uuid.uuid4().hex}"` para campaña; UUIDv4 aportando 122 bits aleatorios de entropía en representación de 32 caracteres hexadecimales, conforme a RFC 4122 §4.4) registrando la jerarquía de PIDs, hardware, SO, versiones del stack, límites del piloto y estado final (`status`, `failure_reason`). Si ocurre un fallo en arranque o ejecución, el sidecar captura los PIDs disponibles y el estado de error; su generación se ejecuta durante el desmontaje final fuera de los timers de cómputo.
 - **Preservación de fallos:** Cualquier interrupción (por timeout, RSS, suelo de RAM o presupuesto de 15 min) se guarda con su estado formal (`TIMEOUT`, `OUT_OF_MEMORY`, `ABORTED_WATCHDOG`, `ABORTED_BUDGET`), conservando los logs para su auditoría técnica.
 
 ---
@@ -637,7 +620,7 @@ Esquema normativo y vinculante de 44 columnas para `results/raw/raw_measurements
 | `compressed_transfer_bytes`, `transfer_metric_source` | Payload comprimido y API/campo que lo aporta, nullable si no disponibles. |
 | `object_nbytes` | Tamaños estimados de objetos; no denominar bytes físicos transferidos. |
 | `rss_driver_mib`, `rss_process_sum_peak_sampled_mib` | RSS del driver y máximo muestreado de la suma RSS. |
-| `peak_working_set_mib` | Peak Working Set individual, con PID/proceso en el sidecar. |
+| `peak_working_set_mib` | Máximo Working Set individual observado en Windows (en las ejecuciones actuales del arnés Python/Windows, obtenido sobre los sondeos `psutil` `.rss` / Working Set durante la ventana de la muestra; para `A1`/`A3` mediante `GetProcessMemoryInfo().PeakWorkingSetSize`), acompañado del mapeo de PIDs en el sidecar. |
 | `dask_managed_memory_mib` | Memoria gestionada por Dask, nullable. |
 | `checksum_sum` | Suma de C calculada antes de parar el timer. |
 | `status`, `error_reason` | `COMPLETED`, `TIMEOUT`, `OUT_OF_MEMORY`, `FAILED`, `NOT_RUN_BUDGET`, etc. |
@@ -705,7 +688,7 @@ Todas las figuras tendrán ejes, unidades, `n`, `b`, workers/threads, topología
 | Tamaños ampliados A3/Dask | `1500, 2000`. |
 | `n=100` | Auxiliar exclusivo de A1. |
 | Strong scaling principal | `n=1000,1500,2000`, `b=250`. |
-| Workers candidatos | `p=1,2,4,8,10`; `p>1` bloqueado por permiso. |
+| Workers candidatos | `p=1,2,4,8,10`; `p>1` autorizado en 1 máquina física vía `docs/decisions/DEC-01-instructor-permission.md` (2026-11-23; históricamente bloqueado en Phases 1–10). |
 | Bloque | `b=250` referencia; calibración separada si se autoriza. |
 | Weak scaling | Aplazado, opcional, nuevo protocolo/input si se activa. |
 | Warm-up/repeticiones | 1 + 5 por configuración. |
@@ -719,16 +702,16 @@ Todas las figuras tendrán ejes, unidades, `n`, `b`, workers/threads, topología
 | Gate | Nombre | Estado | Condiciones para avanzar |
 |---|---|---|---|
 | G0 | Discovery | **PASSED** | Repositorio, host y baselines auditados e inventariados. |
-| G1 | Permission / Topology | **PENDING** | Requerido para barridos locales $p>1$. Configuración $p=1$ desbloqueada. Si no se autoriza, strong scaling queda BLOCKED / NOT COMPLETED. |
+| G1 | Permission / Topology | **PASSED (Single-Host Local `p >= 1`, 2026-11-23) / BLOCKED (Multi-Node)** | Históricamente bloqueado para `p>1` en Phases 1–10; desbloqueado el 2026-11-23 mediante `docs/decisions/DEC-01-instructor-permission.md` para ejecución local multiproceso en 1 máquina física (`physical_machine_count=1`). Multi-nodo continúa **BLOCKED / NOT AVAILABLE**. |
 | G2 | Framework / Architecture | **PASSED** | Dask Distributed y multiplicación por bloques 2D con reducción en árbol aprobados (ADR-001). |
 | G3 | Provenance / Inputs | **PASSED** | Snapshots inmutables (`baselines/`) e inputs comunes certificados en `data/SHA256SUMS.txt`. |
 | G4 | Protocol / Budget | **PASSED** | Protocolo experimental formalmente sincronizado y auditado en este documento. |
-| G5 | Implementation | **NOT STARTED** | Implementación de Dask y adaptadores runtime; revisión estática sin compilación. Requiere Prompt 4. |
-| G6 | Correctness & Build | **NOT STARTED** | Compilación de baselines a `build/bin/`, inspección de ensamblado de A1 (`gcc -S`), y fixtures de corrección. Requiere Prompt 5. |
-| G7 | Environment / Topology | **NOT STARTED** | Verificación en runtime de PIDs reales asignados a roles lógicos (Driver/Scheduler/Nanny y Workers en LocalCluster), un hilo por worker, OpenBLAS verificado a 1 hilo mediante threadpoolctl y calibración de memoria base. Requiere Prompt 6. |
-| G8 | Pilot & Full Experiment | **NOT STARTED** | Especificación formal del piloto de 6 muestras formalizada (§10.5); ejecución de Phase 7 pendiente de autorización independiente. |
-| G9 | Data Audit & Analysis | **NOT STARTED** | Auditoría de datos brutos, cálculo de medianas/IQR y generación determinista de figuras. |
-| G10 | Final Audit | **NOT STARTED** | Auditoría final frente a `SPEC.md` y PDF oficial antes de entrega. |
+| G5 | Implementation | **PASSED** | Implementación Dask (`src/dask_matrix/`), CLI, watchdog, logger, sidecar y adaptadores runtime implementados y verificados con tests unitarios. |
+| G6 | Correctness & Build | **PASSED** | Baselines compilados en `build/bin/`, ensamblado A1 (`-O3`) inspeccionado, y fixtures (`4×4` exactos `0.0`) + referencia $n=250$ (`max_abs_diff = 1.137e-13` en $b=250$ / `1.208e-13` en $b=100$, dentro de `atol=1e-9, rtol=1e-12`; diferencia de checksum `0.0`) verificados. |
+| G7 | Environment / Topology | **PASSED** | Topología `1+p` PIDs en LocalCluster Windows, 1 hilo/worker, OpenBLAS a 1 hilo vía `threadpoolctl` y memoria base verificados. |
+| G8 | Pilot & Full Experiment | **PASSED** | Pilot 1 (timeout 30 s) diagnosticado, Pilot 2 (6/6) y campaña Phase 8 (36/36, $p=1$; 48 filas históricas preservadas) más campaña autorizada DEC-01 de strong scaling local (`p ∈ {1,2,4,8,10}`, 90 filas anexadas) y pase diagnóstico separado ($n=1000$) registrados. |
+| G9 | Data Audit & Analysis | **PASSED** | 138 registros brutos (48 históricos + 90 strong scaling) auditados; tablas derivadas, 3 figuras y `analysis_provenance.json` (13/13 SHA-256) generados y verificados por `scripts/analyze_campaign.py` y `scripts/verify_provenance.py`. |
+| G10 | Final Audit | **PASSED** | Código, reproducibilidad en clon limpio, `README.md`, `report/report.md`, `report/Assignment04_Report.tex`/`.pdf` y especificaciones reconciliados. |
 
 ### 12.3 Secuencia posterior de fases y reglas de coherencia
 
@@ -746,9 +729,9 @@ Todas las figuras tendrán ejes, unidades, `n`, `b`, workers/threads, topología
 
 ---
 
-## 13. Declaración de no ejecución
+## 13. Declaración histórica de no ejecución (Gate G4 / Phase 3)
 
-La elaboración y aprobación de este protocolo no ha implicado:
+La elaboración y aprobación inicial de este protocolo en Phase 3 (Gate G4) no implicaron:
 
 - instalación, actualización o eliminación de dependencias;
 - generación o regeneración de datasets;
@@ -759,7 +742,7 @@ La elaboración y aprobación de este protocolo no ha implicado:
 - benchmarks, pilotos ni campañas de medición;
 - modificación del repositorio Assignment04 o de su historial Git.
 
-Cualquier fase posterior deberá contar con su autorización propia y respetar los gates indicados.
+> **Nota de estado posterior:** Esta sección documenta el estado de congelación inicial exigido en la aprobación de Phase 3 (`Gate G4`). Las fases posteriores debidamente autorizadas (`Phases 4–10`, incluida la campaña de un solo worker $p=1$ bajo `Gates G5–G9`, y la campaña local multi-worker de strong scaling autorizada el 2026-11-23 bajo `docs/decisions/DEC-01-instructor-permission.md`) ya se han ejecutado conforme a los gates indicados, mientras que la ejecución multinodo real continúa **BLOCKED / NOT AVAILABLE** y el weak scaling permanece aplazado (DEC-07). Cualquier ejecución adicional futura deberá contar con su autorización propia.
 
 ---
 

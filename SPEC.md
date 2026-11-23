@@ -131,10 +131,9 @@ To eliminate ambiguities where procedural engineering rules might appear to over
 No AI agent may silently alter these decisions without explicit student authorization.
 
 ### DEC-01 — Instructor permission for local multiple workers
-- **Status:** **PENDING / BLOCKED for $p > 1$**. Single worker ($p=1$) is designed and ready for Gate G7.
-- **Rule:** A local multi-process execution with multiple workers ($p \in \{2, 4, 8, 10\}$) is permitted only if explicit instructor permission is obtained.
-- **Strong-Scaling Compliance:** Dask execution with `p=1` alone measures application latency with framework coordination; **`p=1` alone does NOT constitute a strong-scaling sweep**.
-- **Action & Blocker:** Until written permission is saved in `docs/decisions/`, all multi-worker execution remains strictly blocked. If instructor permission is unavailable and no approved multi-node infrastructure exists, mandatory strong scaling must be recorded as **BLOCKED / NOT COMPLETED**. Under no circumstances may $p=1$ be substituted for a multi-worker sweep to claim that the strong-scaling requirement was met. The comparison of $p=1$ with A1/A3 is a cross-system contextual comparison, not worker scaling.
+- **Status:** **AUTHORIZED (2026-11-23) for local single-host multi-worker execution ($p > 1$)** via [`docs/decisions/DEC-01-instructor-permission.md`](docs/decisions/DEC-01-instructor-permission.md). *(Historical record: previously `BLOCKED / NOT COMPLETED` for $p > 1$ during Phases 1–10 while written instructor permission was absent; single-worker $p=1$ pilot and Phase 8 campaign completed under Gates G7–G9 and remain preserved intact.)*
+- **Rule:** Local multi-process execution with multiple workers ($p \in \{2, 4, 8, 10\}$) is permitted only when written authorization evidence exists in `docs/decisions/` (enforced fail-closed by `verify_multiworker_permission(p)`).
+- **Strong-Scaling Compliance & Topology Boundary:** `p=1` alone does not constitute a strong-scaling sweep. Authorized multi-worker runs ($p \in \{1, 2, 4, 8, 10\}$) execute on **one physical machine** (`physical_machine_count = 1`) over loopback TCP sockets (`127.0.0.1`) and shared DRAM/L3; they must be labeled strictly as local multi-process execution and **never** as multi-node cluster scaling or inter-machine network throughput. Multi-node execution remains **BLOCKED / NOT AVAILABLE**.
 
 ### DEC-02 — Available deployment topology
 - **Status:** **Confirmed Single Physical Machine**.
@@ -235,7 +234,7 @@ Normative reference: `docs/experimental_protocol.md`.
 ### 6.1 Comparison methods and mapping
 - `seq_basic`: A1 basic triple loop ($i$-$j$-$k$).
 - `seq_ikj`: A3 optimized loop ($i$-$k$-$j$).
-- `omp_ikj`: A3 OpenMP parallel loop ($i$-$k$-$j$, 10 threads).
+- `omp_ikj`: A3 OpenMP parallel loop ($i$-$k$-$j$). Historical summaries in `data/baselines/a3_parallel_results_summary.csv` span $t \in \{1, 2, 4, 8, 10\}$ threads (with single-threaded $t=1$ paired against A4 $p=1$ in Table 2 and multi-threaded $t=10$ matching the 10 physical cores reported as shared-memory context).
 - `omp_tiled_b32`: A3 OpenMP tiled variant ($32 \times 32$ tiles, optional secondary).
 - `dask_block_2d`: Dask Distributed 2D block implementation.
 
@@ -302,7 +301,7 @@ Process memory metrics must be clearly distinguished:
 1. **Per-Process RSS:** Physical resident memory of an individual PID.
 2. **Sampled Aggregate RSS Sum:** Simultaneous sum of RSS across all benchmark processes (driver, scheduler, nannies, workers), sampled every 250 ms. Conservative proxy; double-counts shared pages.
 3. **Peak Sampled Aggregate RSS:** Maximum observed simultaneous aggregate RSS during the run.
-4. **Peak Working Set:** Process lifetime peak working set from OS. Cannot be summed across processes.
+4. **Peak Working Set (`peak_working_set_mib`):** In `A1`/`A3` C baselines, the OS process-lifetime peak Working Set from `GetProcessMemoryInfo()`; in Dask Windows runs (`psutil`), `.rss` reports the Windows process Working Set, and `peak_working_set_mib` records the maximum single-PID sampled Working Set within the sample window (cannot be summed across processes).
 5. **Dask Managed Memory:** Memory tracked by Dask workers for task results.
 6. **Structural Memory:** Theoretical $3 \cdot 8n^2$ bytes for matrices $A, B, C$.
 7. **Host Available Memory:** System-wide available physical memory.
@@ -314,8 +313,8 @@ Process memory metrics must be clearly distinguished:
 
 Normative schema and formulas: `docs/experimental_protocol.md`, Section 11.
 
-- Raw data stored in `results/raw/raw_measurements.csv` (1 row per sample, normative 44-column schema, append-only, preserving all statuses: `COMPLETED`, `TIMEOUT`, `OUT_OF_MEMORY`, `ABORTED_WATCHDOG`, `ABORTED_BUDGET`, `NOT_RUN_AFTER_OOM`, `FAILED`).
-- Campaign metadata stored in companion JSON manifests (with unique `run_id` formatted as `pilot_<timestamp>_<uuid.uuid4().hex>`, providing 122 random bits of entropy in a 32-hexadecimal character representation per RFC 4122 §4.4, and recording process hierarchy, stack versions, status, and failure reason).
+- Raw data stored in `results/raw/raw_measurements.csv` (1 row per sample, normative 44-column schema, append-only, preserving all statuses: `COMPLETED`, `TIMEOUT`, `OUT_OF_MEMORY`, `ABORTED_WATCHDOG`, `ABORTED_BUDGET`, `NOT_RUN_AFTER_OOM`, `NOT_RUN_AFTER_TIMEOUT`, `FAILED`).
+- Campaign metadata stored in companion JSON manifests (with unique `run_id` formatted as `pilot_<timestamp>_<uuid.uuid4().hex>` or `campaign_<timestamp>_<uuid.uuid4().hex>`, providing 122 random bits of entropy in a 32-hexadecimal character representation per RFC 4122 §4.4, and recording process hierarchy, stack versions, status, and failure reason).
 - Statistical summaries use Median ($\tilde{T}$) and linear Interquartile Range ($\text{IQR} = Q_3 - Q_1$).
 - Strong scaling speedup: $S_{\text{dist}}(p, n) = \tilde{T}_{\text{dist}}(1, n) / \tilde{T}_{\text{dist}}(p, n)$.
 - Strong scaling efficiency: $E_{\text{dist}}(p, n) = S_{\text{dist}}(p, n) / p$.
@@ -342,8 +341,10 @@ Normative standards: `CLAUDE.md`, Section 9.
 ```text
 Assignment04/
 ├── CLAUDE.md                 # Mandatory engineering rules
+├── LICENSE                   # MIT License
 ├── SPEC.md                   # Technical specification and contract
 ├── README.md                 # Project documentation and reproducibility guide
+├── requirements.txt          # Pinned Python dependencies for clean-clone setup
 ├── docs/
 │   ├── experimental_protocol.md  # Single detailed source of truth for experiment
 │   ├── decisions/            # ADR-001 and instructor permission record
@@ -357,6 +358,7 @@ Assignment04/
 │   ├── a1_runtime/           # Prepared A1 runtime data
 │   └── a3_runtime/           # Prepared A3 runtime data
 ├── data/                     # Certified common input datasets
+│   ├── baselines/            # Tracked copies of frozen A1/A3 summary CSVs
 │   ├── dense/                # Common benchmark matrices (generated on-demand, .gitignored)
 │   ├── validation/           # Correctness fixtures and reference C_250.csv (tracked)
 │   ├── README.md             # Operational dataset reconstruction guide
@@ -378,16 +380,16 @@ Assignment04/
 | Gate | Identifier | Status | Prerequisites to Pass |
 |---|---|---|---|
 | G0 | Discovery | **PASSED** | Environment, host, baseline repos, and course requirements inventoried. |
-| G1 | Permission / Topology | **PENDING** | Required for local multi-worker sweeps ($p > 1$). Single worker ($p=1$) unblocked. If permission is denied, strong scaling across multiple workers is marked **BLOCKED / NOT COMPLETED**. |
+| G1 | Permission / Topology | **PASSED (Single-Host Local `p >= 1`, 2026-11-23) / BLOCKED (Multi-Node)** | Historically blocked for $p > 1$ during Phases 1–10; authorized on 2026-11-23 via `docs/decisions/DEC-01-instructor-permission.md` for single-host local multi-process strong scaling (`physical_machine_count=1`). Multi-node remains **BLOCKED / NOT AVAILABLE**. |
 | G2 | Framework / Architecture | **PASSED** | Dask Distributed and 2D block reduction architecture approved (ADR-001). |
 | G3 | Provenance / Inputs | **PASSED** | Baseline snapshots and common inputs frozen and certified. |
 | G4 | Protocol / Budgets | **PASSED** | `docs/experimental_protocol.md` approved and synchronized. |
-| G5 | Implementation (Prompt 4) | **NOT STARTED** | Implementation-only: Dask implementation and runtime adapters; static Makefile review. Prohibited: compilation, benchmarks, pilots. |
-| G6 | Correctness & Build (Prompt 5) | **NOT STARTED** | Authorizes compiling baselines to `build/bin/`, A1 assembly/disassembly check (`gcc -S`), and correctness fixtures. Prohibited: benchmarks. |
-| G7 | Environment (Prompt 6) | **NOT STARTED** | Runtime processes, unique PIDs, 1 thread/worker, OpenBLAS thread limit (verified via threadpoolctl), and idle memory calibration verified. |
-| G8 | Pilot & Benchmark (Prompts 7–8)| **NOT STARTED** | Pilot specification formalised (§DEC-06, 6 runs total); pilot execution requires independent Stage 2 authorization. Full campaign requires pilot review. |
-| G9 | Data Audit and Analysis | **NOT STARTED** | Raw data audited; derived tables and figures generated deterministically. |
-| G10 | Final Audit | **NOT STARTED** | Code, data, figures, README, and report fully reconciled with specification. |
+| G5 | Implementation (Prompt 4) | **PASSED** | Dask implementation (`src/dask_matrix/`), CLI, watchdog, logger, sidecar, and runtime adapters implemented and unit-tested. |
+| G6 | Correctness & Build (Prompt 5) | **PASSED** | Baselines compiled to `build/bin/`, A1 `-O3` assembly inspected, correctness fixtures (`4×4` exact `0.0`) and $n=250$ reference (`max_abs_diff = 1.137e-13` for $b=250$ / `1.208e-13` for $b=100$, well within `atol=1e-9, rtol=1e-12`; aggregate checksum diff `0.0`) verified. |
+| G7 | Environment (Prompt 6) | **PASSED** | Windows LocalCluster 2-PID process mapping, 1 thread/worker, single-thread OpenBLAS via `threadpoolctl`, and idle RAM telemetry calibrated. |
+| G8 | Pilot & Benchmark (Prompts 7–8 + DEC-01 Strong Scaling) | **PASSED** | Phase 7/8 `p=1` campaign (48 historical rows preserved byte-for-byte) plus DEC-01 authorized local multi-worker pilot (`p=1` vs `p=2`), strong-scaling sweep (`p ∈ {1, 2, 4, 8, 10}`, `n ∈ {1000, 1500, 2000}`, 90 rows appended), and separate `n=1000` diagnostic pass logged cleanly. |
+| G9 | Data Audit and Analysis | **PASSED** | 138 raw records (48 historical + 90 strong-scaling) audited; derived CSVs (Phase 8 + strong-scaling summary), 3 publication figures, and 13/13 SHA-256 provenance checks generated and verified cleanly by `scripts/analyze_campaign.py` and `scripts/verify_provenance.py`. |
+| G10 | Final Audit | **PASSED** | Code contracts, unit tests, clean-clone reproducibility, `README.md`, `report/report.md`, `report/Assignment04_Report.tex`/`.pdf`, and specs reconciled. |
 
 ---
 
@@ -396,7 +398,7 @@ Assignment04/
 The project is complete and ready for submission only when:
 
 1. The distributed Dask implementation performs 2D block matrix multiplication with tree reduction, and its partitioning, placement, and result gathering are documented.
-2. Sequential, OpenMP, and distributed methods are compared on feasible common sizes using identical logical input matrices.
+2. Sequential, OpenMP, and distributed methods are compared on feasible common sizes: under the frozen-baseline and DEC-01 rules, the report presents cross-system contextual comparisons against preserved Assignment 1/3 summaries (`data/baselines/`), while common deterministic input matrices in `data/dense/` and runtime adapters remain available for authorized execution.
 3. Strong scaling is evaluated with fixed problem size across permitted worker configurations ($p=1$ baseline, and $p \in \{2, 4, 8, 10\}$ if permitted).
 4. Workers, OS processes, and physical machines are distinguished accurately throughout code, metadata, and report.
 5. End-to-end timing boundaries, optional phase timings, and communication limitations are reported transparently.
