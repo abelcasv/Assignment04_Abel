@@ -102,7 +102,7 @@ T_Dask_e2e = t1 - t0
 
 ## 5. Gate G1 / DEC-01 Permission Enforcement
 
-In strict compliance with official course requirement A4-11 (PDF page 7) and `SPEC.md` (DEC-01):
+In strict compliance with the official Assignment 4 specification (*"Local execution limitation"*, PDF page 7) and `SPEC.md` (DEC-01):
 - Single-worker execution ($p=1$) is always permitted.
 - Local multi-worker execution ($p \in \{2, 4, 8, 10\}$) requires written instructor authorization stored in `docs/decisions/` (recorded in `docs/decisions/DEC-01-instructor-permission.md` on 2026-11-23; previously **BLOCKED** during Phases 1–10).
 - `src/dask_matrix/cluster_manager.py` verifies this condition fail-closed before launching any cluster. If $p > 1$ and the authorization file is absent or empty, it raises `PermissionError` immediately.

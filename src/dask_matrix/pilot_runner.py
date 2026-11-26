@@ -3,7 +3,7 @@ src.dask_matrix.pilot_runner — Phase 7 Bounded Pilot Execution Orchestrator
 
 Implements the formal and binding Pilot experimental specification defined in:
 - docs/experimental_protocol.md Section 10.5
-- SPEC.md and CLAUDE.md
+- SPEC.md
 
 Fixed, immutable execution plan:
 1. pilot_250_w0: n=250, b=250, p=1, rep=0, warmup=True  (Latencia base, 1 mult, 0 red)

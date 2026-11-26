@@ -124,8 +124,9 @@ def verify_multiworker_permission(p: int) -> bool:
             f"[DEC-01 / Gate G1 BLOCKED] Local multi-worker execution with p={p} workers "
             f"is strictly BLOCKED because no written instructor permission was found in "
             f"'{DECISIONS_DIR}'. Candidates checked: {PERMISSION_FILE_CANDIDATES}. "
-            f"Under course rules (PDF page 7, A4-11), local multi-worker execution requires "
-            f"explicit permission. Do NOT silently substitute p=1."
+            f"Under the official Assignment 4 specification ('Local execution limitation', "
+            f"PDF page 7), local multi-worker execution requires explicit instructor permission. "
+            f"Do NOT silently substitute p=1."
         )
 
     return True

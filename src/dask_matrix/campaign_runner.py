@@ -3,7 +3,7 @@ src.dask_matrix.campaign_runner — Phase 8 Full Single-Worker Campaign Orchestr
 
 Implements the formal and binding single-worker (p=1) experimental campaign specified in:
 - docs/experimental_protocol.md (Section 3, Section 8, Section 10, Section 11)
-- SPEC.md and CLAUDE.md
+- SPEC.md
 
 Campaign Matrix:
 - Method: dask_block_2d exclusively
