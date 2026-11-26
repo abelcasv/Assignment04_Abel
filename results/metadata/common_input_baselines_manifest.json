@@ -1,0 +1,245 @@
+{
+  "schema_version": "1.0",
+  "run_id": "common_baselines_20261126_105840_cf1671d1ebec43d7afd7ba566b20fe65",
+  "description": "Controlled common-input execution of frozen Assignment 1 (sequential C) and Assignment 3 (sequential & OpenMP C) baselines using the exact deterministic IEEE 754 binary64 matrices in data/dense/ used by Assignment 4 Dask campaigns.",
+  "started_utc": "2026-11-26T10:58:40.956164+00:00",
+  "completed_utc": "2026-11-26T11:16:22.083472+00:00",
+  "total_wall_duration_s": 1061.1272793000098,
+  "git_commit_sha_at_execution": "8cca26284c41a139bbe1d9ed3f54961119cd11a8",
+  "host_environment": {
+    "processor": "Intel64 Family 6 Model 186 Stepping 3, GenuineIntel",
+    "machine": "AMD64",
+    "physical_cores": 10,
+    "logical_processors": 12,
+    "total_ram_mib": 16009.140625,
+    "available_ram_before_mib": 3903.79296875,
+    "available_ram_after_mib": 4520.3984375,
+    "os_platform": "Windows-11-10.0.26300-SP0",
+    "python_orchestrator_version": "3.14.0 (tags/v3.14.0:ebf955d, Oct  7 2025, 10:15:03) [MSC v.1944 64 bit (AMD64)]"
+  },
+  "compiler_and_build_provenance": {
+    "gcc_cli_version": "gcc.EXE (Rev5, Built by MSYS2 project) 16.1.0",
+    "a1_binary_embedded_ident": [
+      "GCC: (Rev5, Built by MSYS2 project) 16.1.0"
+    ],
+    "a3_binary_embedded_ident": [
+      "GCC: (Rev5, Built by MSYS2 project) 16.1.0"
+    ],
+    "a1_cflags": "-Wall -Wextra -O3 -std=c11",
+    "a1_ldflags": "-lpsapi",
+    "a3_cflags": "-Wall -Wextra -O3 -std=c11 -fopenmp -march=native",
+    "a3_ldflags": "-lpsapi",
+    "a3_runtime_environment_record": {
+      "openmp_spec_version": "202111",
+      "omp_num_procs": "12",
+      "omp_max_threads": "12",
+      "omp_dynamic_status": "0",
+      "compiler": "GCC 16.1.0",
+      "build_flags": "-Wall -Wextra -O3 -std=c11 -fopenmp -march=native",
+      "omp_num_threads_env": "unset (per-region num_threads clause)",
+      "internal_numerical_library_threads": "none (no threaded math library is used)",
+      "omp_proc_bind": "unset",
+      "omp_places": "unset",
+      "omp_schedule": "unset",
+      "omp_thread_limit": "unset",
+      "omp_max_active_levels": "unset",
+      "timestamp": "1795690761"
+    }
+  },
+  "source_and_binary_provenance": {
+    "a1_origin_commit": "90681e85949b6d65bdbcfef702b6306b0003f971",
+    "a3_origin_commit": "23cffbc82c155b6c3de24b3c149b509b63fc870b",
+    "frozen_source_sha256": {
+      "baselines/a1_sequential/benchmark.c": "4893fc553e97a0ec596c3c1cf9d5d8f582fc49308fc5971b338f48fd0268236f",
+      "baselines/a1_sequential/Makefile": "b35b8cf8671d4cb0bdc42b59f0708dd8e55ebe51842034d3046c60da82f8c31f",
+      "baselines/a3_openmp/parallel_benchmark.c": "6da20a3aed0862adc296fe9f4c8625bc51cd777959a5403088f7960c8741dbc8",
+      "baselines/a3_openmp/Makefile": "474e4d2f2b57a5696bd8202ac0e125b101dbe6bcd5f58bd92df2a23f8a37e364"
+    },
+    "a1_binary_sha256": "71314C6E9C562E66AB5D203417FB336E1245F0663A54C19C409A412E45B69E22",
+    "a3_binary_sha256": "CE3A3CD59A70153E5221DCA0C54F527978E4CCFF9926F401A4158E4C6EFBD829"
+  },
+  "common_input_dataset_provenance": {
+    "generator_script": "scripts/generate_dataset.py",
+    "seed_formula": "42 + n",
+    "prng": "Python random.Random (MT19937)",
+    "value_range": "[0.0, 1.0)",
+    "dtype": "IEEE 754 binary64 (double / float64)",
+    "common_3way_dimensions": [
+      250,
+      500,
+      750,
+      1000
+    ],
+    "extended_2way_a3_dask_dimensions": [
+      1500,
+      2000
+    ],
+    "a1_auxiliary_dimension": 100,
+    "dask_input_hash_parity_by_n": {
+      "250": {
+        "input_A_sha256": "8fc7f538e6047d2fc11d5076154d106935ebd6a34a6ccc67e8c13536016c0d40",
+        "input_B_sha256": "0002373f420cd18209555e5d14557d2d0cbebc4da3a42f872c0886a79f8067c3",
+        "dask_completed_measured_rows_matching": 7,
+        "dask_worker_counts_present": [
+          1
+        ]
+      },
+      "500": {
+        "input_A_sha256": "f27913d865d29276ef24f53f5a6862447b330e7f888182aff0246a0532acf756",
+        "input_B_sha256": "dee2a7abadff44e7bda78f877eff28914d9210c7a6525d540f37b66db2067c5b",
+        "dask_completed_measured_rows_matching": 7,
+        "dask_worker_counts_present": [
+          1
+        ]
+      },
+      "750": {
+        "input_A_sha256": "3087c1228c76d369ed34bbb2f99b327ebb62894ef2103cb05e43f43351f9bc05",
+        "input_B_sha256": "d99bbcb0c0000343f921822ebbdc1ea10999dd4a4e4a31e67af4520cd8783c81",
+        "dask_completed_measured_rows_matching": 5,
+        "dask_worker_counts_present": [
+          1
+        ]
+      },
+      "1000": {
+        "input_A_sha256": "1727aa2f3e620fe5e83e523d990f2141e6dc3d5524dc3332ec73965b7f2afa91",
+        "input_B_sha256": "b68ebbd44e43933c01afcdd6da96560083c76012aecfb871440efe900abf6062",
+        "dask_completed_measured_rows_matching": 25,
+        "dask_worker_counts_present": [
+          1,
+          2,
+          4,
+          8
+        ]
+      },
+      "1500": {
+        "input_A_sha256": "f69b2ddd3625383740af8c056a28c84a000bf4f8f6ed279a0143647875ac15de",
+        "input_B_sha256": "9694e3268dd0cab5076835a0a36edfe246ed0944eee58792515efa05f49f8c6c",
+        "dask_completed_measured_rows_matching": 29,
+        "dask_worker_counts_present": [
+          1,
+          2,
+          4,
+          8,
+          10
+        ]
+      },
+      "2000": {
+        "input_A_sha256": "a840b5d73026670a511cbc72145e81f71c317fdda37d913a646685e329c3edc2",
+        "input_B_sha256": "0e73154d2201c19196690485304e3c19c5d50f489192e02657df011d7caf6966",
+        "dask_completed_measured_rows_matching": 25,
+        "dask_worker_counts_present": [
+          1,
+          2,
+          4,
+          8
+        ]
+      }
+    }
+  },
+  "timing_boundaries": {
+    "a1_sequential_c": {
+      "boundary_id": "TB_A1_KERNEL_QPC",
+      "timer": "Windows QueryPerformanceCounter",
+      "includes": [
+        "memset(c, 0, n^2 * 8)",
+        "triple i-j-k multiplication loop"
+      ],
+      "excludes": [
+        "CSV disk loading",
+        "heap allocation/free",
+        "volatile c[0] sink assignment"
+      ],
+      "output_consumption": "volatile double result_sink = c[0] (post-stop; full O(n^3) loop verified in GCC 16.1.0 -O3 assembly)"
+    },
+    "a3_sequential_and_openmp_c": {
+      "boundary_id": "TB_A3_KERNEL_QPC",
+      "timer": "Windows QueryPerformanceCounter",
+      "includes": [
+        "memset(c, 0, n^2 * 8)",
+        "OpenMP parallel region management (for omp_* methods)",
+        "matrix multiplication loop (ikj or 32x32 tiled)"
+      ],
+      "excludes": [
+        "CSV disk loading",
+        "heap allocation/free",
+        "post-stop full-matrix checksum loop into volatile result_sink"
+      ],
+      "output_consumption": "full n^2 summation into volatile double result_sink immediately after stop timer"
+    },
+    "a4_dask_distributed": {
+      "boundary_id": "TB_DASK_E2E",
+      "timer": "Python time.perf_counter()",
+      "includes": [
+        "2D block partitioning",
+        "Client.scatter to workers",
+        "DAG submission (matmul + binary-tree add)",
+        "distributed worker execution & loopback IPC transfers",
+        "Client.gather to driver",
+        "dense matrix reassembly",
+        "full-matrix checksum float(np.sum(C, dtype=np.float64))"
+      ],
+      "excludes": [
+        "LocalCluster startup",
+        "CSV disk loading",
+        "post-run elementwise validation"
+      ]
+    }
+  },
+  "executions": {
+    "a1_common_input": {
+      "started_utc": "2026-11-26T10:58:40.956215+00:00",
+      "completed_utc": "2026-11-26T10:59:18.614460+00:00",
+      "wall_duration_s": 37.65823699999601,
+      "dimensions_executed": [
+        100,
+        250,
+        500,
+        750,
+        1000
+      ],
+      "warmups_per_config": 1,
+      "measured_repetitions_per_config": 5,
+      "total_measured_rows": 25,
+      "failed_or_timed_out_runs": 0,
+      "pre_benchmark_validation_passed": true,
+      "raw_csv_path": "results/raw/a1_common_input_raw.csv",
+      "raw_csv_sha256": "D62258F3CC6CC3387D57B61E9CD0AAD40F2674E3BECB592EA48C43D4BDEF1728"
+    },
+    "a3_common_input": {
+      "started_utc": "2026-11-26T10:59:20.617735+00:00",
+      "completed_utc": "2026-11-26T11:16:22.074310+00:00",
+      "wall_duration_s": 1021.456570800161,
+      "dimensions_executed": [
+        250,
+        500,
+        750,
+        1000,
+        1500,
+        2000
+      ],
+      "methods_executed": [
+        "seq_ikj",
+        "seq_tiled_b32",
+        "omp_ikj",
+        "omp_tiled_b32"
+      ],
+      "openmp_threads_executed": [
+        1,
+        2,
+        4,
+        8,
+        10,
+        12,
+        16,
+        24
+      ],
+      "warmups_per_config": 1,
+      "measured_repetitions_per_config": 5,
+      "total_measured_rows": 540,
+      "failed_or_timed_out_runs": 0,
+      "pre_benchmark_validation_passed": true,
+      "raw_csv_path": "results/raw/a3_common_input_raw.csv",
+      "raw_csv_sha256": "107F7E94E119A01778F9BD31151BA0E202D7749431D2BA30EBEA7D85D05B1399"
+    }
+  }
+}
