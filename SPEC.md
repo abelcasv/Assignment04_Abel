@@ -1,10 +1,10 @@
-# SPEC.md — Assignment 4: Distributed Matrix Multiplication
+# SPEC.md — Assignment 4: Student-Authored Supplementary Technical Specification
 
 **Course:** BIG DATA — Grado en Ciencia e Ingeniería de Datos, ULPGC
 **Academic year:** 2026–2027
 **Assignment:** 4 — Distributed Matrix Multiplication
-**Specification basis:** `BD_Individual_Assignments_2026_2027.pdf`, revised proposal 2026–2027.
-**Status:** Binding Technical Contract and Implementation Specification. Formally synchronized with the accepted experimental protocol in `docs/experimental_protocol.md`. Framework, architecture, provenance, and experimental protocol are decision-gated; they must not be guessed or altered by an AI agent.
+**Academic Authority:** The official course specification (`BD_Individual_Assignments_2026_2027.pdf`) and explicit instructor clarifications are the **sole academic authority** for Assignment 4.
+**Document Role:** Student-authored supplementary project specification documenting technical architecture, interfaces, verification gates, and synchronized operational parameters from `docs/experimental_protocol.md`. Nothing in this document overrides, weakens, or reinterprets any requirement of the official assignment PDF.
 
 ---
 
@@ -27,6 +27,8 @@ The comparison must use the same logical input matrices wherever feasible and do
 The goal is a defensible controlled empirical study, not a novel distributed algorithm or a publication-level contribution.
 
 ## 2. Source-derived requirements and interpretation
+
+*(Note: Identifiers `A4-01`–`A4-12` and `COM-01`–`COM-15` below are student-coined internal project traceability labels mapping passages of the official PDF; they are not official instructor requirement codes.)*
 
 ### 2.1 Assignment 4 requirements (official PDF, page 7)
 
@@ -93,21 +95,16 @@ The course-plan window is **Week 12, 23–27 November 2026**. The PDF says the e
 
 ### 2.4 Domain-Specific Authority Model and Normative Precedence
 
-To eliminate ambiguities where procedural engineering rules might appear to override experimental parameters, this project strictly applies a **domain-specific authority model**:
+This repository applies an explicit **authority hierarchy**:
 
-1. **Official Course Document (`docs/reference/BD_Individual_Assignments_2026_2027.pdf`) and Explicit Written Instructor Clarifications:** Highest academic authority; governs all learning objectives, submission deliverables, assessment criteria, and administrative restrictions (including the mandatory requirement for instructor permission prior to executing multiple local workers).
-2. **`SPEC.md` (This Document):** Normative project specification; governs project architecture, technical contracts, baseline interfaces, and acceptance requirements.
-3. **`docs/experimental_protocol.md`:** The **single detailed source of truth** for all experimental parameters, matrix dimensions, block partitioning, timing boundaries, measurement contracts, telemetry metrics, numerical correctness tolerances, resource budgets, and failure handling policies, within the boundaries of the PDF and `SPEC.md`. Formally accepted under Gate G4.
-4. **`CLAUDE.md`:** Binding agent engineering rules, code quality, safety constraints, permission gates, Git discipline, and operational procedures. It **cannot** silently redefine or weaken experimental parameters.
-5. **Task Prompts:** Authorize only the operational actions and deliverables explicitly assigned to the immediate phase; cannot override or weaken higher-tier documents.
+1. **Official Course Document (`docs/reference/BD_Individual_Assignments_2026_2027.pdf`) and Explicit Written Instructor Clarifications:** Supreme academic authority; governs all learning objectives, common-input comparison rules, submission deliverables, assessment criteria, and local multi-worker restrictions.
+2. **`docs/experimental_protocol.md`:** Detailed experimental protocol for matrix dimensions, block partitioning, timing boundaries, measurement contracts, telemetry metrics, numerical correctness tolerances, resource budgets, and failure handling policies, subordinate to the official PDF.
+3. **`SPEC.md` (This Document):** Student-authored supplementary project specification documenting architecture, module contracts, baseline adapters, and reproducibility gates, subordinate to the official PDF.
 
-**Conflict Resolution Rule:** If any genuine contradiction arises across these documents, the agent must stop immediately, document the conflicting passages, and request clarification from the student before proceeding.
+### 2.5 Active Technical Documentation
 
-### 2.5 Canonical and Archival Document Definitions
-
-- **Canonical Documents:** `CLAUDE.md`, `SPEC.md`, and `docs/experimental_protocol.md` are the sole authoritative, canonical project documents.
-- **Archival Drafts:** Historical drafts `CLAUDE_UPDATED.md` and `SPEC_UPDATED.md` have been fully consolidated into the canonical governance documents and removed from the active repository; they are superseded and are not active repository documents.
-- **Superseded Drafts:** Any prior protocol working draft (including `docs/Assignment04_Experimental_Protocol_Final.md`) is fully superseded by `docs/experimental_protocol.md` and must never be treated as a competing source of truth.
+- **Active Specification & Protocol Documents:** `SPEC.md`, `docs/experimental_protocol.md`, `docs/decisions/DEC-01-instructor-permission.md`, and `docs/provenance/baseline_provenance.md`.
+- **Superseded Drafts:** Earlier working drafts (`CLAUDE_UPDATED.md`, `SPEC_UPDATED.md`, `docs/Assignment04_Experimental_Protocol_Final.md`) were retired and are not active repository documents.
 
 ---
 
@@ -231,12 +228,10 @@ Detailed architecture specifications are defined normatively in `docs/experiment
 
 Normative reference: `docs/experimental_protocol.md`.
 
-### 6.1 Comparison methods and mapping
-- `seq_basic`: A1 basic triple loop ($i$-$j$-$k$).
-- `seq_ikj`: A3 optimized loop ($i$-$k$-$j$).
-- `omp_ikj`: A3 OpenMP parallel loop ($i$-$k$-$j$). Historical summaries in `data/baselines/a3_parallel_results_summary.csv` span $t \in \{1, 2, 4, 8, 10\}$ threads (with single-threaded $t=1$ paired against A4 $p=1$ in Table 2 and multi-threaded $t=10$ matching the 10 physical cores reported as shared-memory context).
-- `omp_tiled_b32`: A3 OpenMP tiled variant ($32 \times 32$ tiles, optional secondary).
-- `dask_block_2d`: Dask Distributed 2D block implementation.
+### 6.1 Comparison methods and dataset separation
+- **Controlled Common-Input Comparisons (Required by Official PDF p. 2 & p. 7):** All primary cross-method comparisons between `seq_basic` (Assignment 1 `i-j-k`), `seq_ikj` / `seq_tiled_b32` (Assignment 3 sequential), `omp_ikj` / `omp_tiled_b32` (Assignment 3 OpenMP across `t ∈ {1, 2, 4, 8, 10, 12, 16, 24}`), and `dask_block_2d` (Assignment 4 Dask Distributed) must consume the **exact same logical deterministic input matrices** in `data/dense/` (verified via SHA-256 hashes in `data/SHA256SUMS.txt` and `results/metadata/common_input_baselines_manifest.json`). Raw common-input baseline observations are preserved in `results/raw/a1_common_input_raw.csv` and `results/raw/a3_common_input_raw.csv`, and analyzed in `results/analysis/common_input_comparison.csv`.
+- **Historical Contextual Summaries (Preserved Separately):** Frozen summary CSVs from the original Assignment 1 (`data/baselines/a1_summary.csv`, including C, Java, and Python) and Assignment 3 (`data/baselines/a3_parallel_results_summary.csv`) reports were measured on each earlier assignment's own random `float64` matrices. They are preserved strictly as historical contextual reference (`results/analysis/contextual_baseline_comparison.csv`) and must **never** be relabeled as, or mixed with, controlled common-input measurements.
+- **Timing-Boundary Qualification:** Because A1 (`TB_A1_KERNEL_QPC`) and A3 (`TB_A3_KERNEL_QPC`) time in-process multiplication kernels whereas Dask (`TB_DASK_E2E`) times end-to-end distributed execution (partitioning, scatter, DAG submission, execution, gather, assembly, checksum), cross-method ratios are always qualified as cross-boundary system ratios rather than isolated algorithmic speedups.
 
 ### 6.2 Strong scaling sweep
 - Evaluated on $n \in \{1000, 1500, 2000\}$ with fixed $b = 250$.
@@ -324,72 +319,65 @@ Normative schema and formulas: `docs/experimental_protocol.md`, Section 11.
 
 ## 11. Development quality, testing, and version control
 
-Normative standards: `CLAUDE.md`, Section 9.
-
 - **Engineering Quality:** Clean Code, KISS, YAGNI, sensible DRY, Boy Scout rule, separation of concerns, explicitness, and reproducibility. Immutable baselines and datasets.
-- **Source Code Standards:** Explicit interfaces, input validation at boundaries, structured error handling, PEP 8 / type hints for Python, strict memory and compiler safety for C.
-- **Testing & Static Checks:** Focused deterministic unit/contract tests for new features and bug fixes; edge cases and invalid inputs; only authorized checks executed; tests unexecuted due to phase constraints marked `NOT RUN / NOT VERIFIED`; no Husky or default Node tooling; no unapproved dependencies.
-- **Incremental Local Commits:** Commit completed logical units progressively; standing authorization for ordinary local commits under the 10-step safety procedure in `CLAUDE.md`, Section 9.4; no blanket staging (`git add .` prohibited); explicit paths only.
-- **Commit Messages:** Conventional Commits (`<type>(<scope>): <imperative summary>` in English, max 72 chars).
-- **Branching & History Safety:** Stable `main` branch; short-lived branches for isolated/risky tasks; no unauthorized branch switching, merging, history rewriting, amending, rebasing, resetting, or force-pushing; pushing always requires separate explicit authorization.
-- **Artifact Handling:** Build outputs, executables, object files, caches, venvs, temporary runtime directories (`build/a1_runtime/`, `build/a3_runtime/`), secrets, PDFs, and private prompts excluded from Git; frozen baselines and inputs strictly immutable; dense benchmark matrices in `data/dense/` excluded from Git under Option B (see `data/README.md`); raw measurements append-only.
+- **Source Code Standards:** Explicit interfaces, input validation at boundaries, structured error handling, PEP 8 / type hints for Python, strict memory and compiler safety for C (`-Wall -Wextra`).
+- **Testing & Static Checks:** Deterministic unit and contract tests (`tests/`) covering normal paths, edge blocks, invalid inputs, permission gating, watchdog safeguards, adapters, and provenance verification.
+- **Version Control & Artifact Hygiene:** Build outputs, executables, object files, caches, virtual environments, temporary runtime directories (`build/a1_runtime/`, `build/a3_runtime/`), proprietary course PDFs, and internal prompts/instructions are excluded from Git via `.gitignore`; dense benchmark matrices in `data/dense/` are excluded under Option B and deterministically reconstructed via `scripts/generate_dataset.py` + `scripts/verify_dataset.py` (`data/README.md`); raw measurements are preserved non-destructively.
 
 ---
 
 ## 12. Repository structure
 
 ```text
-Assignment04/
-├── CLAUDE.md                 # Mandatory engineering rules
-├── LICENSE                   # MIT License
-├── SPEC.md                   # Technical specification and contract
+Assignment04_Abel/
+├── SPEC.md                   # Student-authored supplementary project specification
 ├── README.md                 # Project documentation and reproducibility guide
 ├── requirements.txt          # Pinned Python dependencies for clean-clone setup
 ├── docs/
-│   ├── experimental_protocol.md  # Single detailed source of truth for experiment
-│   ├── decisions/            # ADR-001 and instructor permission record
+│   ├── experimental_protocol.md  # Detailed experimental protocol and chronology
+│   ├── decisions/            # DEC-01 instructor permission record
 │   ├── provenance/           # Baseline and input provenance records
-│   └── reference/            # Course specification PDF
-├── baselines/                # Frozen immutable A1/A3 snapshots
+│   └── reference/            # Local course specification PDF (.gitignored)
+├── baselines/                # Frozen immutable A1/A3 C source snapshots
 │   ├── a1_sequential/
 │   └── a3_openmp/
-├── build/                    # Runtime directories and compiled binaries
-│   ├── bin/                  # Target compiled executables
-│   ├── a1_runtime/           # Prepared A1 runtime data
-│   └── a3_runtime/           # Prepared A3 runtime data
-├── data/                     # Certified common input datasets
-│   ├── baselines/            # Tracked copies of frozen A1/A3 summary CSVs
+├── build/                    # Local compiled binaries and prepared runtime dirs (.gitignored)
+│   ├── bin/
+│   ├── a1_runtime/
+│   └── a3_runtime/
+├── data/                     # Certified common input datasets & historical baselines
+│   ├── baselines/            # Preserved historical A1/A3 summary CSVs (contextual only)
 │   ├── dense/                # Common benchmark matrices (generated on-demand, .gitignored)
 │   ├── validation/           # Correctness fixtures and reference C_250.csv (tracked)
 │   ├── README.md             # Operational dataset reconstruction guide
 │   └── SHA256SUMS.txt        # Certified checksum manifest (tracked)
-├── src/                      # Distributed Dask implementation and adapters
-├── scripts/                  # Dataset generator, verification, and runtime adapters
-├── tests/                    # Focused correctness and contract tests
+├── src/                      # Distributed Dask implementation and baseline adapters
+├── scripts/                  # Dataset, baseline runner, verification, and analysis scripts
+├── tests/                    # Automated correctness and contract test suite
 ├── results/                  # Experimental results
-│   ├── raw/                  # Immutable raw measurements CSV
-│   ├── metadata/             # Run manifests and environment sidecars
-│   └── analysis/             # Derived summary tables and figures
-└── report/                   # Final research report and materials
+│   ├── raw/                  # Immutable Dask raw CSV + common-input A1/A3 raw CSVs
+│   ├── metadata/             # Run manifests, diagnostics, and environment sidecars
+│   └── analysis/             # Derived summary tables, comparisons, provenance, and figures
+└── report/                   # Official PDF report (Assignment04_Report.pdf) and sources
 ```
 
 ---
 
 ## 13. Acceptance gates
 
-| Gate | Identifier | Status | Prerequisites to Pass |
+| Gate | Identifier | Status | Evidence Summary |
 |---|---|---|---|
-| G0 | Discovery | **PASSED** | Environment, host, baseline repos, and course requirements inventoried. |
-| G1 | Permission / Topology | **PASSED (Single-Host Local `p >= 1`, 2026-11-23) / BLOCKED (Multi-Node)** | Historically blocked for $p > 1$ during Phases 1–10; authorized on 2026-11-23 via `docs/decisions/DEC-01-instructor-permission.md` for single-host local multi-process strong scaling (`physical_machine_count=1`). Multi-node remains **BLOCKED / NOT AVAILABLE**. |
-| G2 | Framework / Architecture | **PASSED** | Dask Distributed and 2D block reduction architecture approved (ADR-001). |
-| G3 | Provenance / Inputs | **PASSED** | Baseline snapshots and common inputs frozen and certified. |
-| G4 | Protocol / Budgets | **PASSED** | `docs/experimental_protocol.md` approved and synchronized. |
-| G5 | Implementation (Prompt 4) | **PASSED** | Dask implementation (`src/dask_matrix/`), CLI, watchdog, logger, sidecar, and runtime adapters implemented and unit-tested. |
-| G6 | Correctness & Build (Prompt 5) | **PASSED** | Baselines compiled to `build/bin/`, A1 `-O3` assembly inspected, correctness fixtures (`4×4` exact `0.0`) and $n=250$ reference (`max_abs_diff = 1.137e-13` for $b=250$ / `1.208e-13` for $b=100$, well within `atol=1e-9, rtol=1e-12`; aggregate checksum diff `0.0`) verified. |
-| G7 | Environment (Prompt 6) | **PASSED** | Windows LocalCluster 2-PID process mapping, 1 thread/worker, single-thread OpenBLAS via `threadpoolctl`, and idle RAM telemetry calibrated. |
-| G8 | Pilot & Benchmark (Prompts 7–8 + DEC-01 Strong Scaling) | **PASSED** | Phase 7/8 `p=1` campaign (48 historical rows preserved byte-for-byte) plus DEC-01 authorized local multi-worker pilot (`p=1` vs `p=2`), strong-scaling sweep (`p ∈ {1, 2, 4, 8, 10}`, `n ∈ {1000, 1500, 2000}`, 90 rows appended), and separate `n=1000` diagnostic pass logged cleanly. |
-| G9 | Data Audit and Analysis | **PASSED** | 138 raw records (48 historical + 90 strong-scaling) audited; derived CSVs (Phase 8 + strong-scaling summary), 3 publication figures, and 13/13 SHA-256 provenance checks generated and verified cleanly by `scripts/analyze_campaign.py` and `scripts/verify_provenance.py`. |
-| G10 | Final Audit | **PASSED** | Code contracts, unit tests, clean-clone reproducibility, `README.md`, `report/report.md`, `report/Assignment04_Report.tex`/`.pdf`, and specs reconciled. |
+| G0 | Discovery | **PASSED** | Environment, host, baseline repos, and official PDF requirements inventoried. |
+| G1 | Permission / Topology | **PASSED (Single-Host Local `p >= 1`, 2026-11-23) / BLOCKED (Multi-Node)** | Authorized on 2026-11-23 via `docs/decisions/DEC-01-instructor-permission.md` for single-host local multi-process strong scaling (`physical_machine_count=1`). Multi-node cluster execution remains **BLOCKED / NOT AVAILABLE**; optional weak scaling remains **DEFERRED (DEC-07)**. |
+| G2 | Framework / Architecture | **PASSED** | Dask Distributed and 2D block binary-tree reduction implemented and documented. |
+| G3 | Provenance / Inputs | **PASSED** | Baseline snapshots (`baselines/`) and common deterministic inputs (`data/SHA256SUMS.txt`) frozen and verified. |
+| G4 | Protocol / Budgets | **PASSED** | `docs/experimental_protocol.md` synchronized with full chronological trail. |
+| G5 | Implementation | **PASSED** | Dask implementation (`src/dask_matrix/`), CLI, watchdog, logger, sidecar, and runtime adapters implemented and tested. |
+| G6 | Correctness & Build | **PASSED** | Baselines compiled with MSYS2 MinGW-W64 GCC 16.1.0 to `build/bin/`, A1 `-O3` assembly inspected, correctness fixtures (`4×4` exact `0.0`) and $n=250$ reference (`max_abs_diff = 1.137e-13` for $b=250$ / `1.208e-13` for $b=100$, within `atol=1e-9, rtol=1e-12`) verified. |
+| G7 | Environment | **PASSED** | Windows `LocalCluster` `1 + p` OS PID mapping, 1 thread/worker, single-thread OpenBLAS (`threadpoolctl`), and RAM telemetry verified. |
+| G8 | Benchmarks (Dask + Common-Input Baselines) | **PASSED** | Frozen Phase 7/8 `p=1` Dask dataset (48 rows), DEC-01 local strong-scaling Dask dataset (90 rows) + `n=1000` diagnostics, and controlled common-input A1 (`25` rows) & A3 (`540` rows) baseline runs preserved cleanly without mixing datasets. |
+| G9 | Data Audit and Analysis | **PASSED** | Common-input comparisons, historical contextual summaries, strong-scaling summaries, 4 publication figures, and SHA-256 provenance manifest generated and verified offline. |
+| G10 | Final Audit | **PASSED** | Code contracts, unit tests, dataset/provenance checks, `README.md`, `report/report.md`, and `report/Assignment04_Report.tex`/`.pdf` reconciled against the official PDF. |
 
 ---
 
@@ -397,13 +385,13 @@ Assignment04/
 
 The project is complete and ready for submission only when:
 
-1. The distributed Dask implementation performs 2D block matrix multiplication with tree reduction, and its partitioning, placement, and result gathering are documented.
-2. Sequential, OpenMP, and distributed methods are compared on feasible common sizes: under the frozen-baseline and DEC-01 rules, the report presents cross-system contextual comparisons against preserved Assignment 1/3 summaries (`data/baselines/`), while common deterministic input matrices in `data/dense/` and runtime adapters remain available for authorized execution.
-3. Strong scaling is evaluated with fixed problem size across permitted worker configurations ($p=1$ baseline, and $p \in \{2, 4, 8, 10\}$ if permitted).
-4. Workers, OS processes, and physical machines are distinguished accurately throughout code, metadata, and report.
-5. End-to-end timing boundaries, optional phase timings, and communication limitations are reported transparently.
-6. Execution time, process memory, data transfer, and budgets are measured and documented.
-7. Correctness validation, numerical reference provenance, and tolerances are verified.
-8. The English report follows the course structure, cites genuine sources, and discusses findings and limitations with academic rigor.
-9. All code, raw data, scripts, and documentation form an independently reproducible package.
+1. The distributed Dask implementation performs 2D block matrix multiplication with binary-tree reduction, and its partitioning, placement, and result gathering are documented.
+2. Sequential (Assignment 1), shared-memory OpenMP (Assignment 3), and distributed Dask (Assignment 4) implementations are compared on feasible common dimensions using **identical logical input matrices (`data/dense/`)**, clearly separated from preserved historical contextual summaries (`data/baselines/`) and Dask strong-scaling sweeps, with timing-boundary differences explicitly documented.
+3. Strong scaling is evaluated with fixed problem size across authorized local worker configurations ($p \in \{1, 2, 4, 8, 10\}$ on 1 physical machine under DEC-01), without claiming multi-node scalability.
+4. Workers, OS processes, threads, and physical machines are distinguished accurately throughout code, metadata, and report.
+5. End-to-end timing boundaries, diagnostic phase timings, per-worker memory telemetry, and single-host communication limitations are reported transparently.
+6. Execution time, process/worker memory, data-transfer observations, and operational budgets/timeouts are measured and documented without fabricated values.
+7. Correctness validation, numerical reference provenance, checksum precision limits, and tolerances are verified accurately.
+8. The English PDF research report follows the official course structure, cites verified sources accurately, and scopes conclusions strictly to the evidence.
+9. All code, raw data, manifests, scripts, and documentation form a clean, independently reproducible repository free of unintended licensing or internal agent files.
 10. Generative AI tool use is fully disclosed in accordance with course policy.

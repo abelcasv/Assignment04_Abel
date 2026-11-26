@@ -2,8 +2,10 @@
 
 **Curso:** BIG DATA · Grado en Ciencia e Ingeniería de Datos · ULPGC
 **Curso académico:** 2026–2027
-**Fecha de versión:** 13 de noviembre de 2026
-**Estado:** Protocolo de diseño revisado. Aprobación del estudiante: aceptado en esta conversación. **No autoriza compilaciones, pruebas de corrección, workers ni mediciones.**
+**Fecha de versión original (Fase 3 / Gate G4):** 13 de noviembre de 2026
+**Última actualización cronológica de estado:** 26 de noviembre de 2026
+**Estado actual:** **Protocolo experimental ejecutado en ámbito local autorizado.**
+- *Trazabilidad cronológica:* (1) El 13-11-2026 (Fase 3 / Gate G4) este documento se aprobó como diseño congelado previo a compilación y mediciones; (2) el 14-11-2026 (Fases 5–8) se validaron compilación/corrección y se ejecutaron los pilotos y la campaña base Dask de un worker (`p = 1`, 48 filas preservadas en `results/raw/raw_measurements.csv`); (3) el 23-11-2026, tras autorización expresa docente (`docs/decisions/DEC-01-instructor-permission.md`), se ejecutaron la campaña local multi-worker de strong scaling (`p ∈ {1, 2, 4, 8, 10}`, 90 filas anexadas) y el pase diagnóstico separado (`n = 1000`); (4) el 26-11-2026 se ejecutaron las comparaciones controladas de los baselines congelados A1 y A3 sobre las matrices comunes deterministas `data/dense/` (`results/raw/a1_common_input_raw.csv`, `results/raw/a3_common_input_raw.csv`). La ejecución multinodo física permanece **BLOCKED / NOT AVAILABLE** y el weak scaling permanece **DEFERRED (DEC-07)**.
 
 ---
 
@@ -16,10 +18,9 @@ Este documento constituye la **única fuente canónica y detallada de verdad (*s
 Para evitar ambigüedades en las que las reglas de ingeniería parezcan anular las definiciones experimentales, se aplica un **modelo de autoridad específico por dominios**:
 
 1. **Documento oficial de la asignatura (`BD_Individual_Assignments_2026_2027.pdf`) y aclaraciones expresas de la profesora:** Máxima autoridad académica; gobierna los objetivos de aprendizaje, requisitos de evaluación y limitaciones administrativas (incluyendo la restricción de ejecución local con múltiples workers).
-2. **`SPEC.md`:** Gobierna la arquitectura normativa del proyecto, contratos técnicos, interfaces de baselines y criterios de aceptación.
-3. **`docs/experimental_protocol.md` (este documento):** Gobierna los parámetros experimentales detallados, tamaños de matriz, particionado por bloques, contratos temporales de medición, métricas de telemetría, tolerancias numéricas y presupuestos de recursos, dentro de los límites del PDF oficial y de `SPEC.md`.
-4. **`CLAUDE.md`:** Gobierna el comportamiento permanente del agente, reglas de seguridad, puertas de autorización, disciplina Git y estándares de ingeniería de software. No puede redefinir silenciosamente los parámetros experimentales.
-5. **Task Prompts suministrados por el estudiante:** Autorizan únicamente las acciones operativas y entregables explícitamente asignados a la fase actual; no pueden anular ni debilitar los documentos superiores.
+2. **`SPEC.md`:** Especificación técnica suplementaria redactada por el estudiante; gobierna la arquitectura del proyecto, contratos técnicos, interfaces de baselines y puertas de verificación, subordinada siempre al PDF oficial.
+3. **`docs/experimental_protocol.md` (este documento):** Gobierna los parámetros experimentales detallados, tamaños de matriz, particionado por bloques, contratos temporales de medición, métricas de telemetría, tolerancias numéricas y presupuestos de recursos, dentro de los límites del PDF oficial.
+4. **Instrucciones de fase del estudiante:** Autorizan únicamente las acciones operativas y entregables explícitamente asignados a cada fase, sin anular ni debilitar el PDF oficial.
 
 **Regla ante contradicciones:** Si surge un conflicto genuino entre documentos, el agente debe detenerse e informar al estudiante con citas exactas de los pasajes contradictorios antes de continuar, sin seleccionar interpretaciones de conveniencia.
 
@@ -35,8 +36,8 @@ Para evitar ambigüedades en las que las reglas de ingeniería parezcan anular l
 | Multinodo real | No hay infraestructura multinodo acreditada actualmente; **BLOCKED / NOT AVAILABLE** hasta identificarla y aprobarla. |
 | Strong scaling obligatorio | **COMPLETADO en modo local multiproceso (1 máquina física, 2026-11-23)** bajo DEC-01 (`p ∈ {1, 2, 4, 8}` completos; `p=10` detenido por timeout `131.92 s > 120 s` en `n=1500` rep 5). Escalado multinodo permanece **BLOCKED / NOT AVAILABLE**. |
 | Inputs, A1/A3 y sus snapshots | Congelados en Phase 2.1; inmutables; no regenerar ni modificar. |
-| Weak scaling | Extensión opcional aplazada; **BLOCKED**; no forma parte de la campaña principal. |
-| Implementación, instalación, compilación y mediciones | No autorizadas por esta fase de diseño. |
+| Weak scaling | Extensión opcional aplazada; **DEFERRED / BLOCKED (DEC-07)**; no forma parte de la campaña ejecutada. |
+| Implementación, compilación y mediciones autorizadas | **COMPLETADAS en fases posteriores autorizadas** (Dask `p=1` el 14-11-2026; strong scaling local `p ∈ {1..10}` y diagnósticos el 23-11-2026; comparación controlada A1/A3 con inputs comunes `data/dense/` el 26-11-2026; *no estaban autorizadas aún en la aprobación inicial de diseño del 13-11-2026*). |
 
 > [!IMPORTANT]
 > **Cumplimiento estricto del requisito de strong scaling:**
@@ -539,7 +540,7 @@ Si el watchdog detecta que la suma RSS muestreada alcanza o supera 2.5 GiB, o qu
 
 ### 10.5 Especificación formal y vinculante del piloto de Phase 7 (Prompt 7)
 
-Conforme a la autorización estudiantil independiente de la Etapa 1 (formalización documental) y en cumplimiento estricto de las directrices docentes (`BD_Individual_Assignments_2026_2027.pdf`), `SPEC.md` y `CLAUDE.md`, se establece la especificación completa, acotada y vinculante para el piloto experimental de Phase 7:
+Conforme a la autorización estudiantil independiente de la Etapa 1 (formalización documental) y en cumplimiento estricto de las directrices docentes (`BD_Individual_Assignments_2026_2027.pdf`) y `SPEC.md`, se establece la especificación completa, acotada y vinculante para el piloto experimental de Phase 7:
 
 #### 1. Matriz de prueba acotada del piloto:
 - **Método evaluado:** `dask_block_2d` exclusivamente (implementación distribuida objeto del estudio en `src/dask_matrix/distributed_engine.py`). No se ejecutan baselines de A1 ni de A3 en el piloto.
@@ -742,7 +743,7 @@ La elaboración y aprobación inicial de este protocolo en Phase 3 (Gate G4) no 
 - benchmarks, pilotos ni campañas de medición;
 - modificación del repositorio Assignment04 o de su historial Git.
 
-> **Nota de estado posterior:** Esta sección documenta el estado de congelación inicial exigido en la aprobación de Phase 3 (`Gate G4`). Las fases posteriores debidamente autorizadas (`Phases 4–10`, incluida la campaña de un solo worker $p=1$ bajo `Gates G5–G9`, y la campaña local multi-worker de strong scaling autorizada el 2026-11-23 bajo `docs/decisions/DEC-01-instructor-permission.md`) ya se han ejecutado conforme a los gates indicados, mientras que la ejecución multinodo real continúa **BLOCKED / NOT AVAILABLE** y el weak scaling permanece aplazado (DEC-07). Cualquier ejecución adicional futura deberá contar con su autorización propia.
+> **Nota de estado posterior (26-11-2026):** Esta sección conserva íntegramente el registro histórico de congelación inicial exigido en la aprobación de Phase 3 (`Gate G4`, 13-11-2026). Las fases posteriores debidamente autorizadas ya se han completado: compilación y validación de corrección (`Phase 5`, GCC 16.1.0), campaña Dask de un solo worker $p=1$ (`Phases 7–8`, 14-11-2026, 48 filas preservadas), campaña local multi-worker de strong scaling y diagnóstico separado autorizados el 23-11-2026 bajo `docs/decisions/DEC-01-instructor-permission.md` (90 filas anexadas), y ejecución controlada con matrices comunes `data/dense/` de los baselines congelados A1 y A3 (26-11-2026, `results/raw/a1_common_input_raw.csv` y `results/raw/a3_common_input_raw.csv`). La ejecución multinodo física continúa **BLOCKED / NOT AVAILABLE** y el weak scaling permanece aplazado (`DEC-07`).
 
 ---
 

@@ -70,7 +70,8 @@ Dado que los ejecutables originales buscan rutas fijas relativas a su argumento 
   ```powershell
   ./build/bin/a1_benchmark.exe build/a1_runtime
   ```
-- **Resumen Histórico Versionado:** Una copia exacta byte-a-byte del CSV histórico de resultados de A1 (`8d3662f2...`) se versiona en `data/baselines/a1_summary.csv` para garantizar reproducibilidad en un clon limpio.
+- **Resumen Histórico Versionado:** Una copia exacta byte-a-byte del CSV histórico de resultados de A1 (`8d3662f2...`, compilado con MSYS2 MinGW-W64 GCC 16.1.0 sobre las matrices propias de A1) se preserva en `data/baselines/a1_summary.csv` como contexto histórico.
+- **Ejecución Controlada con Inputs Comunes (`data/dense/`):** Las mediciones controladas de A1 (compilado desde el snapshot inmutable con MSYS2 MinGW-W64 GCC 16.1.0 `-Wall -Wextra -O3 -std=c11 -lpsapi`) sobre las mismas matrices deterministas `data/dense/` usadas por Dask se preservan por separado en `results/raw/a1_common_input_raw.csv` junto con su manifiesto de procedencia `results/metadata/common_input_baselines_manifest.json`.
 - **Tamaños Fijos y Dimensión Auxiliar $n=100$:**
   - El ejecutable de A1 tiene fijada en su código la lista `SIZES = {100, 250, 500, 750, 1000}`.
   - La dimensión $n=100$ se incluye como dimensión auxiliar de compatibilidad para permitir que el ejecutable de A1 complete su ciclo sin errores.
@@ -89,7 +90,8 @@ Dado que los ejecutables originales buscan rutas fijas relativas a su argumento 
   ```powershell
   ./build/bin/a3_parallel_benchmark.exe build/a3_runtime
   ```
-- **Resumen Histórico Versionado:** Una copia exacta byte-a-byte del CSV histórico de resultados de A3 (`046773fd...`) se versiona en `data/baselines/a3_parallel_results_summary.csv` para garantizar reproducibilidad en un clon limpio.
+- **Resumen Histórico Versionado:** Una copia exacta byte-a-byte del CSV histórico de resultados de A3 (`046773fd...`, compilado con MSYS2 MinGW-W64 GCC 16.1.0 sobre las matrices propias de A3) se preserva en `data/baselines/a3_parallel_results_summary.csv` como contexto histórico.
+- **Ejecución Controlada con Inputs Comunes (`data/dense/`):** Las mediciones controladas de A3 (`seq_ikj`, `seq_tiled_b32`, `omp_ikj`, `omp_tiled_b32`, compilado desde el snapshot inmutable con MSYS2 MinGW-W64 GCC 16.1.0 `-Wall -Wextra -O3 -std=c11 -fopenmp -march=native -lpsapi`) sobre las matrices comunes `data/dense/` se preservan por separado en `results/raw/a3_common_input_raw.csv` y `results/metadata/common_input_baselines_manifest.json`.
 
 ---
 

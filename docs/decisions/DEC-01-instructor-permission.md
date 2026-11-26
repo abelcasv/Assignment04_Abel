@@ -9,7 +9,7 @@
 
 ## 1. Historical Traceability
 
-During Phases 1–10 (Gates G1–G10), local multi-worker execution (`p > 1`) was strictly blocked in compliance with official course requirement **A4-11** (*"Local multi-process execution with multiple workers requires explicit instructor permission"*). All Phase 7 pilot runs and the Phase 8 single-worker campaign (`run_id = campaign_20261114_205134_1d126401af244671b4ca8708818549f3`, 36 rows in `results/raw/raw_measurements.csv`) were therefore restricted strictly to `p = 1` and transparently reported multi-worker strong scaling as `BLOCKED / NOT COMPLETED`.
+During Phases 1–10 (Gates G1–G10), local multi-worker execution (`p > 1`) was strictly blocked in compliance with the official Assignment 4 specification (*"Local execution limitation"*, PDF page 7: *"A local execution with multiple workers may be used only if the instructor permits it"*; tracked internally as `A4-11` in `SPEC.md`). All Phase 7 pilot runs and the Phase 8 single-worker campaign (`run_id = campaign_20261114_205134_1d126401af244671b4ca8708818549f3`, 36 rows in `results/raw/raw_measurements.csv`) were therefore restricted strictly to `p = 1` and transparently reported multi-worker strong scaling as `BLOCKED / NOT COMPLETED`.
 
 All historical Phase 7 and Phase 8 records, sidecars, and frozen baseline snapshots are preserved intact and never overwritten.
 
