@@ -301,6 +301,32 @@ class TestVerifyProvenance(unittest.TestCase):
         self.assertEqual(len(records), 2)
         self.assertEqual({r["name"] for r in records}, {"strong_scaling_manifest_json", "strong_scaling_diagnostics_json"})
 
+    def test_verify_manifest_checks_common_input_baseline_inputs(self):
+        repo_root = self.tmp_path / "repo"
+        repo_root.mkdir()
+        a1_raw = repo_root / "results" / "raw" / "a1_common_input_raw.csv"
+        a3_raw = repo_root / "results" / "raw" / "a3_common_input_raw.csv"
+        cb_man = repo_root / "results" / "metadata" / "common_input_baselines_manifest.json"
+        h_a1 = self._write_lf_text(a1_raw, "language,n\nc,250\n")
+        h_a3 = self._write_lf_text(a3_raw, "method,n\nseq_ikj,250\n")
+        h_cb = self._write_lf_text(cb_man, '{"run_id": "cb"}\n')
+
+        manifest = {
+            "a1_common_input_raw_csv": {"path": "results/raw/a1_common_input_raw.csv", "sha256": h_a1},
+            "a3_common_input_raw_csv": {"path": "results/raw/a3_common_input_raw.csv", "sha256": h_a3},
+            "common_input_baselines_manifest_json": {
+                "path": "results/metadata/common_input_baselines_manifest.json",
+                "sha256": h_cb,
+            },
+        }
+        manifest_file = repo_root / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        success, records, errors = verify_provenance_manifest(manifest_file, repo_root)
+        self.assertTrue(success)
+        self.assertEqual(len(errors), 0)
+        self.assertEqual(len(records), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

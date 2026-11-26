@@ -119,6 +119,9 @@ class TestAnalyzeCampaignEmptyDimensionGuard(unittest.TestCase):
                 A1_SUMMARY_PATH=a1_csv,
                 A3_SUMMARY_PATH=a3_csv,
                 STRONG_SCALING_MANIFEST_PATH="",
+                A1_COMMON_RAW_PATH="",
+                A3_COMMON_RAW_PATH="",
+                COMMON_BASELINES_MANIFEST_PATH="",
             ):
                 with self.assertRaises(ValueError) as ctx:
                     analyze_campaign.main()
@@ -194,6 +197,94 @@ class TestAnalyzeStrongScalingHelper(unittest.TestCase):
             self.assertEqual(summary_rows[10]["speedup_vs_p1"], "")
             self.assertEqual(summary_rows[10]["efficiency_vs_p1"], "")
             self.assertAlmostEqual(float(summary_rows[10]["median_time_e2e_s"]), 40.0, places=6)
+
+
+class TestAnalyzeCommonInputBaselinesHelper(unittest.TestCase):
+
+    def test_verifies_input_hashes_and_rejects_mismatch(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = os.path.join(tmp, "analysis")
+            os.makedirs(out_dir, exist_ok=True)
+            a1_raw = os.path.join(tmp, "a1_common.csv")
+            a3_raw = os.path.join(tmp, "a3_common.csv")
+            cb_man = os.path.join(tmp, "cb_manifest.json")
+
+            with open(a1_raw, "w", encoding="utf-8", newline="\n") as f:
+                f.write("language,n,repetition,time_s,memory_mb\nc,250,1,0.020,5.8\nc,250,2,0.022,5.8\n")
+            with open(a3_raw, "w", encoding="utf-8", newline="\n") as f:
+                f.write(
+                    "method,algorithm,parallel_model,vectorisation,n,threads,actual_threads,"
+                    "oversubscribed,numeric_type,repetition,time_s,peak_memory_mib,structural_memory_mib\n"
+                )
+                for m, alg, pm, th in [
+                    ("seq_ikj", "ikj", "sequential", 1),
+                    ("seq_tiled_b32", "tiled_b32", "sequential", 1),
+                    ("omp_ikj", "ikj", "openmp", 1),
+                    ("omp_ikj", "ikj", "openmp", 8),
+                    ("omp_ikj", "ikj", "openmp", 10),
+                    ("omp_tiled_b32", "tiled_b32", "openmp", 1),
+                    ("omp_tiled_b32", "tiled_b32", "openmp", 8),
+                    ("omp_tiled_b32", "tiled_b32", "openmp", 10),
+                ]:
+                    f.write(f"{m},{alg},{pm},autovec_O3,250,{th},{th},0,double,1,0.005,8.0,1.43\n")
+
+            sha_a = "a" * 64
+            sha_b = "b" * 64
+            manifest = {
+                "run_id": "cb_test",
+                "common_input_dataset_provenance": {
+                    "common_3way_dimensions": [250],
+                    "extended_2way_a3_dask_dimensions": [],
+                    "dask_input_hash_parity_by_n": {
+                        "250": {"input_A_sha256": sha_a, "input_B_sha256": sha_b}
+                    },
+                },
+            }
+            with open(cb_man, "w", encoding="utf-8", newline="\n") as f:
+                json.dump(manifest, f)
+
+            header = ["n", "status", "is_warmup", "input_A_sha256", "input_B_sha256"]
+            col = {k: i for i, k in enumerate(header)}
+            dask_stats = {
+                250: {
+                    "median_time_e2e_s": 0.04,
+                    "q1_time_e2e_s": 0.038,
+                    "q3_time_e2e_s": 0.042,
+                    "iqr_time_e2e_s": 0.004,
+                }
+            }
+
+            # Valid matching hash succeeds
+            ok_rows = [["250", "COMPLETED", "false", sha_a, sha_b]]
+            res = analyze_campaign._analyze_common_input_baselines(
+                data_rows=ok_rows,
+                col=col,
+                dask_phase8_stats=dask_stats,
+                ss_summary_rows=[],
+                a1_raw_path=a1_raw,
+                a3_raw_path=a3_raw,
+                manifest_path=cb_man,
+                output_dir=out_dir,
+            )
+            self.assertTrue(os.path.isfile(res["comparison_csv"]))
+            self.assertTrue(os.path.isfile(res["plot_png"]))
+
+            # Mismatched input SHA-256 must fail closed
+            bad_rows = [["250", "COMPLETED", "false", "c" * 64, sha_b]]
+            with self.assertRaises(ValueError) as ctx:
+                analyze_campaign._analyze_common_input_baselines(
+                    data_rows=bad_rows,
+                    col=col,
+                    dask_phase8_stats=dask_stats,
+                    ss_summary_rows=[],
+                    a1_raw_path=a1_raw,
+                    a3_raw_path=a3_raw,
+                    manifest_path=cb_man,
+                    output_dir=out_dir,
+                )
+            self.assertIn("parity check failed", str(ctx.exception))
 
 
 if __name__ == "__main__":
