@@ -340,7 +340,7 @@ Cada repetición utilizará claves/tareas únicas o un mecanismo equivalente par
 
 Los tiempos A1 y A3 se registrarán exactamente con los límites internos originales de sus harnesses. No se ampliarán artificialmente para que parezcan end-to-end. La carga de datos y asignaciones excluidas por sus timers seguirán excluidas.
 
-En Windows, la memoria de A1/A3 puede ser un Peak Working Set acumulado durante la vida del proceso. Si una invocación ejecuta varios tamaños, ese pico no se asignará falsamente a cada tamaño individual.
+En los harnesses congelados de los baselines common-input, A1 registra `WorkingSetSize` como snapshot del proceso después de la llamada cronometrada; A3 registra `PeakWorkingSetSize`, el máximo acumulado durante la vida del proceso. Son métricas distintas y no deben presentarse como equivalentes. El pico de A3 puede incluir ejecuciones anteriores de la misma invocación con varios tamaños.
 
 ---
 
@@ -621,7 +621,7 @@ Esquema normativo y vinculante de 44 columnas para `results/raw/raw_measurements
 | `compressed_transfer_bytes`, `transfer_metric_source` | Payload comprimido y API/campo que lo aporta, nullable si no disponibles. |
 | `object_nbytes` | Tamaños estimados de objetos; no denominar bytes físicos transferidos. |
 | `rss_driver_mib`, `rss_process_sum_peak_sampled_mib` | RSS del driver y máximo muestreado de la suma RSS. |
-| `peak_working_set_mib` | Máximo Working Set individual observado en Windows (en las ejecuciones actuales del arnés Python/Windows, obtenido sobre los sondeos `psutil` `.rss` / Working Set durante la ventana de la muestra; para `A1`/`A3` mediante `GetProcessMemoryInfo().PeakWorkingSetSize`), acompañado del mapeo de PIDs en el sidecar. |
+| `peak_working_set_mib` | Máximo Working Set individual observado en los procesos Dask supervisados en Windows durante la ventana de la muestra, obtenido mediante sondeos `psutil` `.rss` / Working Set y acompañado del mapeo de PIDs en el sidecar. En el resumen separado de baselines common-input, A1 conserva el snapshot `WorkingSetSize` posterior a la llamada cronometrada y A3 conserva `PeakWorkingSetSize` durante la vida del proceso. |
 | `dask_managed_memory_mib` | Memoria gestionada por Dask, nullable. |
 | `checksum_sum` | Suma de C calculada antes de parar el timer. |
 | `status`, `error_reason` | `COMPLETED`, `TIMEOUT`, `OUT_OF_MEMORY`, `FAILED`, `NOT_RUN_BUDGET`, etc. |
