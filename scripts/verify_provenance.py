@@ -94,6 +94,9 @@ def extract_artifact_entries(manifest: Dict[str, Any]) -> Tuple[List[Dict[str, A
         "campaign_sidecar_json",
         "strong_scaling_manifest_json",
         "strong_scaling_diagnostics_json",
+        "a1_common_input_raw_csv",
+        "a3_common_input_raw_csv",
+        "common_input_baselines_manifest_json",
     ):
         if key in manifest:
             item = manifest[key]

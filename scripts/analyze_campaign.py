@@ -37,6 +37,11 @@ STRONG_SCALING_MANIFEST_PATH = os.path.join(
 STRONG_SCALING_DIAGNOSTICS_PATH = os.path.join(
     REPO_ROOT, "results", "metadata", "strong_scaling_diagnostics.json"
 )
+A1_COMMON_RAW_PATH = os.path.join(REPO_ROOT, "results", "raw", "a1_common_input_raw.csv")
+A3_COMMON_RAW_PATH = os.path.join(REPO_ROOT, "results", "raw", "a3_common_input_raw.csv")
+COMMON_BASELINES_MANIFEST_PATH = os.path.join(
+    REPO_ROOT, "results", "metadata", "common_input_baselines_manifest.json"
+)
 OUTPUT_DIR = os.path.join(REPO_ROOT, "results", "analysis")
 
 TARGET_RUN_ID = "campaign_20261114_205134_1d126401af244671b4ca8708818549f3"
@@ -65,6 +70,333 @@ def sha256_first_n_lines(filepath: str, line_count: int) -> str:
 def _parse_optional_float(raw_value: str) -> float | None:
     text = (raw_value or "").strip()
     return float(text) if text else None
+
+
+def _summarize_series(values: List[float]) -> Dict[str, float]:
+    """Computes standard descriptive statistics (median, linear Q1/Q3/IQR, mean, sample SD, min, max)."""
+    arr = np.array(values, dtype=np.float64)
+    q1 = float(np.percentile(arr, 25, method="linear"))
+    q3 = float(np.percentile(arr, 75, method="linear"))
+    return {
+        "count": int(len(arr)),
+        "median": float(np.median(arr)),
+        "q1": q1,
+        "q3": q3,
+        "iqr": q3 - q1,
+        "mean": float(np.mean(arr)),
+        "std": float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0,
+        "min": float(np.min(arr)),
+        "max": float(np.max(arr)),
+    }
+
+
+def _analyze_common_input_baselines(
+    data_rows: List[List[str]],
+    col: Dict[str, int],
+    dask_phase8_stats: Dict[int, Dict[str, Any]],
+    ss_summary_rows: List[Dict[str, Any]],
+    a1_raw_path: str,
+    a3_raw_path: str,
+    manifest_path: str,
+    output_dir: str,
+) -> Dict[str, Any]:
+    """
+    Analyzes controlled common-input A1 and A3 baseline runs against matched-input Dask runs.
+    Verifies bit-for-bit input matrix SHA-256 parity across A1, A3, and Dask before emitting
+    summary statistics, controlled comparison tables, and Figure 4.
+    """
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        cb_manifest = json.load(f)
+    with open(a1_raw_path, "r", encoding="utf-8", newline="") as f:
+        a1_rows = list(csv.DictReader(f))
+    with open(a3_raw_path, "r", encoding="utf-8", newline="") as f:
+        a3_rows = list(csv.DictReader(f))
+
+    parity_map = cb_manifest["common_input_dataset_provenance"]["dask_input_hash_parity_by_n"]
+    common_3way = [int(x) for x in cb_manifest["common_input_dataset_provenance"]["common_3way_dimensions"]]
+    extended_2way = [
+        int(x) for x in cb_manifest["common_input_dataset_provenance"]["extended_2way_a3_dask_dimensions"]
+    ]
+    all_comp_sizes = common_3way + extended_2way
+
+    # Verify input SHA-256 parity directly against Dask rows in raw_measurements.csv
+    for n in all_comp_sizes:
+        p_entry = parity_map[str(n)]
+        exp_a = p_entry["input_A_sha256"].lower()
+        exp_b = p_entry["input_B_sha256"].lower()
+        matched_dask = [
+            r
+            for r in data_rows
+            if int(r[col["n"]]) == n
+            and r[col["status"]] == "COMPLETED"
+            and r[col["is_warmup"]].lower() == "false"
+            and r[col["input_A_sha256"]].lower() == exp_a
+            and r[col["input_B_sha256"]].lower() == exp_b
+        ]
+        if not matched_dask:
+            raise ValueError(
+                f"Common-input SHA-256 parity check failed for n={n}: no matching Dask rows found."
+            )
+
+    # 1. Summarize every A1 and A3 common-input configuration
+    summary_records: List[Dict[str, Any]] = []
+    a1_stats_by_n: Dict[int, Dict[str, Any]] = {}
+    for n in sorted({int(r["n"]) for r in a1_rows}):
+        sub = [r for r in a1_rows if int(r["n"]) == n]
+        st = _summarize_series([float(r["time_s"]) for r in sub])
+        max_mem = max(float(r["memory_mb"]) for r in sub)
+        rec = {
+            "source": "Assignment 1 (Common Input)",
+            "method": "a1_c_seq_ijk",
+            "threads": 1,
+            "n": n,
+            "sample_count": st["count"],
+            "median_time_s": st["median"],
+            "q1_time_s": st["q1"],
+            "q3_time_s": st["q3"],
+            "iqr_time_s": st["iqr"],
+            "mean_time_s": st["mean"],
+            "std_time_s": st["std"],
+            "min_time_s": st["min"],
+            "max_time_s": st["max"],
+            "max_memory_mib": max_mem,
+            "memory_metric": "Windows WorkingSetSize (GetProcessMemoryInfo)",
+            "timing_boundary_id": "TB_A1_KERNEL_QPC",
+        }
+        summary_records.append(rec)
+        a1_stats_by_n[n] = rec
+
+    a3_stats_map: Dict[tuple[str, int, int], Dict[str, Any]] = {}
+    a3_keys = sorted({(r["method"], int(r["threads"]), int(r["n"])) for r in a3_rows})
+    for method, threads, n in a3_keys:
+        sub = [
+            r
+            for r in a3_rows
+            if r["method"] == method and int(r["threads"]) == threads and int(r["n"]) == n
+        ]
+        st = _summarize_series([float(r["time_s"]) for r in sub])
+        max_mem = max(float(r["peak_memory_mib"]) for r in sub)
+        rec = {
+            "source": "Assignment 3 (Common Input)",
+            "method": method,
+            "threads": threads,
+            "n": n,
+            "sample_count": st["count"],
+            "median_time_s": st["median"],
+            "q1_time_s": st["q1"],
+            "q3_time_s": st["q3"],
+            "iqr_time_s": st["iqr"],
+            "mean_time_s": st["mean"],
+            "std_time_s": st["std"],
+            "min_time_s": st["min"],
+            "max_time_s": st["max"],
+            "max_memory_mib": max_mem,
+            "memory_metric": "Windows Process-Lifetime PeakWorkingSetSize",
+            "timing_boundary_id": "TB_A3_KERNEL_QPC",
+        }
+        summary_records.append(rec)
+        a3_stats_map[(method, threads, n)] = rec
+
+    cb_summary_out = os.path.join(output_dir, "common_input_baseline_summary.csv")
+    with open(cb_summary_out, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(summary_records[0].keys()), lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(summary_records)
+    print(f"[GENERATED] Common-input baseline summary -> {cb_summary_out}")
+
+    # 2. Controlled Common-Input Comparison Table (A1/A3 vs Dask on identical matrices)
+    ss_lookup: Dict[tuple[int, int], Dict[str, Any]] = {
+        (int(r["n"]), int(r["worker_count"])): r
+        for r in ss_summary_rows
+        if r.get("status_summary") == "COMPLETED"
+    }
+
+    selected_baselines = [
+        ("a1_c_seq_ijk", 1, "A1 C Sequential (i-j-k, 1 th)"),
+        ("seq_ikj", 1, "A3 C Sequential (i-k-j, 1 th)"),
+        ("seq_tiled_b32", 1, "A3 C Seq Tiled (b=32, 1 th)"),
+        ("omp_ikj", 1, "A3 OpenMP i-k-j (1 th)"),
+        ("omp_ikj", 8, "A3 OpenMP i-k-j (8 th)"),
+        ("omp_ikj", 10, "A3 OpenMP i-k-j (10 th)"),
+        ("omp_tiled_b32", 1, "A3 OpenMP Tiled b=32 (1 th)"),
+        ("omp_tiled_b32", 8, "A3 OpenMP Tiled b=32 (8 th)"),
+        ("omp_tiled_b32", 10, "A3 OpenMP Tiled b=32 (10 th)"),
+    ]
+
+    comp_rows: List[Dict[str, Any]] = []
+    for n in all_comp_sizes:
+        tier = "3way_common_A1_A3_Dask" if n in common_3way else "2way_extended_A3_Dask"
+        p_entry = parity_map[str(n)]
+        d_p1 = dask_phase8_stats[n]
+        d_p1_med = float(d_p1["median_time_e2e_s"])
+        d_p1_iqr = float(d_p1["iqr_time_e2e_s"])
+        ss_p1 = ss_lookup.get((n, 1))
+        ss_p2 = ss_lookup.get((n, 2))
+        ss_p1_med = float(ss_p1["median_time_e2e_s"]) if ss_p1 else None
+        ss_p2_med = float(ss_p2["median_time_e2e_s"]) if ss_p2 else None
+
+        for method_key, th, label in selected_baselines:
+            if method_key == "a1_c_seq_ijk":
+                if n not in a1_stats_by_n:
+                    continue
+                b_rec = a1_stats_by_n[n]
+            else:
+                if (method_key, th, n) not in a3_stats_map:
+                    continue
+                b_rec = a3_stats_map[(method_key, th, n)]
+
+            b_med = float(b_rec["median_time_s"])
+            b_iqr = float(b_rec["iqr_time_s"])
+            ratio_p1 = b_med / d_p1_med
+            ratio_ss_p2 = (b_med / ss_p2_med) if ss_p2_med else None
+
+            comp_rows.append({
+                "n": n,
+                "comparison_tier": tier,
+                "input_A_sha256": p_entry["input_A_sha256"],
+                "input_B_sha256": p_entry["input_B_sha256"],
+                "input_sha256_verified_identical": True,
+                "baseline_method": method_key,
+                "baseline_label": label,
+                "baseline_threads": th,
+                "baseline_timing_boundary": b_rec["timing_boundary_id"],
+                "baseline_median_s": b_med,
+                "baseline_iqr_s": b_iqr,
+                "baseline_memory_mib": b_rec["max_memory_mib"],
+                "dask_phase8_p1_median_s": d_p1_med,
+                "dask_phase8_p1_iqr_s": d_p1_iqr,
+                "cross_boundary_ratio_vs_dask_p1": ratio_p1,
+                "dask_ss_p1_median_s": "" if ss_p1_med is None else ss_p1_med,
+                "dask_ss_p2_median_s": "" if ss_p2_med is None else ss_p2_med,
+                "cross_boundary_ratio_vs_dask_ss_p2": "" if ratio_ss_p2 is None else ratio_ss_p2,
+                "boundary_qualification": (
+                    f"{b_rec['timing_boundary_id']} (in-process kernel) vs TB_DASK_E2E "
+                    "(distributed end-to-end); identical input matrices, non-equivalent timing scopes"
+                ),
+            })
+
+    cb_comp_out = os.path.join(output_dir, "common_input_comparison.csv")
+    with open(cb_comp_out, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(comp_rows[0].keys()), lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(comp_rows)
+    print(f"[GENERATED] Controlled common-input comparison -> {cb_comp_out}")
+
+    # 3. Figure 4: Controlled Common-Input Comparison (Sequential/1-Worker & Parallel/Multi-Worker)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14.2, 5.8), dpi=300)
+
+    def _plot_series(ax: Any, xs: List[int], recs: List[Dict[str, Any]], time_key: str, q1_key: str, q3_key: str, **kwargs: Any) -> None:
+        x_arr = np.array(xs, dtype=np.int64)
+        med_arr = np.array([float(r[time_key]) for r in recs], dtype=np.float64)
+        q1_arr = np.array([float(r[q1_key]) for r in recs], dtype=np.float64)
+        q3_arr = np.array([float(r[q3_key]) for r in recs], dtype=np.float64)
+        ax.errorbar(
+            x_arr,
+            med_arr,
+            yerr=[med_arr - q1_arr, q3_arr - med_arr],
+            capsize=3.5,
+            capthick=1.1,
+            elinewidth=1.3,
+            **kwargs,
+        )
+
+    # Panel A: Single-thread / Single-worker on identical common inputs
+    dask_p1_recs = [dask_phase8_stats[n] for n in all_comp_sizes]
+    _plot_series(
+        ax1, all_comp_sizes, dask_p1_recs, "median_time_e2e_s", "q1_time_e2e_s", "q3_time_e2e_s",
+        fmt="o-", color="#1f77b4", linewidth=2.2, markersize=6,
+        label="A4 Dask Distributed (p=1, b=250, TB_DASK_E2E)",
+    )
+    a1_ns = [n for n in common_3way if n in a1_stats_by_n]
+    _plot_series(
+        ax1, a1_ns, [a1_stats_by_n[n] for n in a1_ns], "median_time_s", "q1_time_s", "q3_time_s",
+        fmt="d:", color="#9467bd", linewidth=1.8, markersize=6,
+        label="A1 C Sequential i-j-k (1 th, TB_A1_KERNEL)",
+    )
+    _plot_series(
+        ax1, all_comp_sizes, [a3_stats_map[("seq_ikj", 1, n)] for n in all_comp_sizes],
+        "median_time_s", "q1_time_s", "q3_time_s",
+        fmt="^--", color="#ff7f0e", linewidth=1.8, markersize=6,
+        label="A3 C Sequential i-k-j (1 th, TB_A3_KERNEL)",
+    )
+    _plot_series(
+        ax1, all_comp_sizes, [a3_stats_map[("seq_tiled_b32", 1, n)] for n in all_comp_sizes],
+        "median_time_s", "q1_time_s", "q3_time_s",
+        fmt="s--", color="#2ca02c", linewidth=1.8, markersize=6,
+        label="A3 C Seq Tiled b=32 (1 th, TB_A3_KERNEL)",
+    )
+    ax1.set_yscale("log")
+    ax1.set_title("Single-Worker / Single-Thread (Identical Inputs)", fontsize=11.5, fontweight="bold")
+    ax1.set_xlabel("Matrix Side Length n (n x n float64)", fontsize=10.5)
+    ax1.set_ylabel("Median Execution Time (s, log scale, IQR bars)", fontsize=10.5)
+    ax1.grid(True, which="both", linestyle="--", alpha=0.45)
+    ax1.legend(loc="lower right", fontsize=8.4, framealpha=0.92)
+
+    # Panel B: Shared-memory OpenMP vs Local Multi-Worker Dask on identical common inputs
+    _plot_series(
+        ax2, all_comp_sizes, dask_p1_recs, "median_time_e2e_s", "q1_time_e2e_s", "q3_time_e2e_s",
+        fmt="o-", color="#1f77b4", linewidth=2.0, markersize=5.8,
+        label="A4 Dask p=1 (Phase 8, TB_DASK_E2E)",
+    )
+    ss_p2_ns = [n for n in all_comp_sizes if (n, 2) in ss_lookup]
+    if ss_p2_ns:
+        _plot_series(
+            ax2, ss_p2_ns, [ss_lookup[(n, 2)] for n in ss_p2_ns],
+            "median_time_e2e_s", "q1_time_e2e_s", "q3_time_e2e_s",
+            fmt="P-", color="#d62728", linewidth=2.1, markersize=6.5,
+            label="A4 Dask p=2 (Strong Scaling, TB_DASK_E2E)",
+        )
+    _plot_series(
+        ax2, all_comp_sizes, [a3_stats_map[("omp_ikj", 8, n)] for n in all_comp_sizes],
+        "median_time_s", "q1_time_s", "q3_time_s",
+        fmt="^--", color="#ff7f0e", linewidth=1.8, markersize=5.8,
+        label="A3 OpenMP omp_ikj (8 th, TB_A3_KERNEL)",
+    )
+    _plot_series(
+        ax2, all_comp_sizes, [a3_stats_map[("omp_ikj", 10, n)] for n in all_comp_sizes],
+        "median_time_s", "q1_time_s", "q3_time_s",
+        fmt="v-.", color="#8c564b", linewidth=1.7, markersize=5.8,
+        label="A3 OpenMP omp_ikj (10 th, TB_A3_KERNEL)",
+    )
+    _plot_series(
+        ax2, all_comp_sizes, [a3_stats_map[("omp_tiled_b32", 8, n)] for n in all_comp_sizes],
+        "median_time_s", "q1_time_s", "q3_time_s",
+        fmt="s--", color="#2ca02c", linewidth=1.8, markersize=5.8,
+        label="A3 OpenMP omp_tiled_b32 (8 th, TB_A3_KERNEL)",
+    )
+    ax2.set_yscale("log")
+    ax2.set_title("Shared-Memory OpenMP vs Distributed Dask (Identical Inputs)", fontsize=11.5, fontweight="bold")
+    ax2.set_xlabel("Matrix Side Length n (n x n float64)", fontsize=10.5)
+    ax2.set_ylabel("Median Execution Time (s, log scale, IQR bars)", fontsize=10.5)
+    ax2.grid(True, which="both", linestyle="--", alpha=0.45)
+    ax2.legend(loc="lower right", fontsize=8.3, framealpha=0.92)
+
+    fig.suptitle(
+        "Assignment 4 — Controlled Common-Input Comparison (Certified Identical Matrices data/dense/, N=5 Reps)",
+        fontsize=12.5,
+        fontweight="bold",
+        y=0.99,
+    )
+    cb_note = (
+        "Controlled Input Guarantee: Every series consumes the exact same IEEE 754 binary64 matrices (SHA-256 verified against data/SHA256SUMS.txt).\n"
+        "Timing Boundary Qualification: A1/A3 measure in-process multiplication kernels (QueryPerformanceCounter); A4 measures Dask end-to-end workflow."
+    )
+    fig.text(0.06, -0.04, cb_note, ha="left", fontsize=8.2, style="italic")
+    plt.tight_layout(rect=[0.0, 0.03, 1.0, 0.94])
+
+    fig4_out = os.path.join(output_dir, "plot_common_input_comparison.png")
+    fig.savefig(fig4_out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[GENERATED] Controlled common-input comparison figure -> {fig4_out}")
+
+    return {
+        "run_id": cb_manifest["run_id"],
+        "common_3way_sizes": common_3way,
+        "extended_2way_sizes": extended_2way,
+        "summary_csv": cb_summary_out,
+        "comparison_csv": cb_comp_out,
+        "plot_png": fig4_out,
+    }
 
 
 def _analyze_strong_scaling(
@@ -598,10 +930,12 @@ def main() -> int:
     ax1.grid(True, linestyle="--", alpha=0.6)
     ax1.legend(loc="upper left")
 
-    # Annotate points
-    for x, y in zip(ns, medians):
+    # Annotate points without colliding with upper IQR error-bar caps
+    for x, y, q3_val in zip(ns, medians, q3s):
+        offset_xy = (-22, 6) if int(x) == 1500 else (0, 8)
+        anchor_y = max(y, q3_val) if int(x) != 1500 else y
         ax1.annotate(
-            f"{y:.3f}s", (x, y), textcoords="offset points", xytext=(0, 8),
+            f"{y:.3f}s", (x, anchor_y), textcoords="offset points", xytext=offset_xy,
             ha="center", fontsize=8, fontweight="medium"
         )
 
@@ -655,11 +989,11 @@ def main() -> int:
         ax.plot(a1_c_ns, a1_c_times, "d:", color="#9467bd", linewidth=1.5, label="A1: C Sequential (ijk)")
 
     ax.set_yscale("log")
-    ax.set_title("Contextual Runtime Comparison: Single-Worker/Single-Thread Implementations", fontsize=12, fontweight="bold")
+    ax.set_title("Historical Contextual Runtime Comparison: Single-Worker/Single-Thread Baselines", fontsize=12, fontweight="bold")
     ax.set_xlabel("Matrix Dimension N (N x N)", fontsize=11)
     ax.set_ylabel("Execution Time (seconds, log scale)", fontsize=11)
     ax.grid(True, which="both", linestyle="--", alpha=0.5)
-    ax.legend(loc="upper left")
+    ax.legend(loc="lower right", framealpha=0.92)
 
     note_text = (
         "Methodological Note: Timing boundaries differ.\n"
@@ -678,12 +1012,37 @@ def main() -> int:
 
     # 5. Optional Strong-Scaling Analysis (authorized local multi-worker campaign)
     ss_info: Dict[str, Any] | None = None
+    ss_summary_rows: List[Dict[str, Any]] = []
     if STRONG_SCALING_MANIFEST_PATH and os.path.isfile(STRONG_SCALING_MANIFEST_PATH):
         ss_info = _analyze_strong_scaling(
             header=header,
             data_rows=data_rows,
             col=col,
             manifest_path=STRONG_SCALING_MANIFEST_PATH,
+            output_dir=OUTPUT_DIR,
+        )
+        with open(ss_info["summary_csv"], "r", encoding="utf-8", newline="") as f:
+            ss_summary_rows = list(csv.DictReader(f))
+
+    # 5b. Controlled Common-Input Baseline Analysis (when common-input raw artifacts exist)
+    cb_info: Dict[str, Any] | None = None
+    if (
+        A1_COMMON_RAW_PATH
+        and A3_COMMON_RAW_PATH
+        and COMMON_BASELINES_MANIFEST_PATH
+        and os.path.isfile(A1_COMMON_RAW_PATH)
+        and os.path.isfile(A3_COMMON_RAW_PATH)
+        and os.path.isfile(COMMON_BASELINES_MANIFEST_PATH)
+    ):
+        dask_phase8_by_n = {int(s["n"]): s for s in stats_summary}
+        cb_info = _analyze_common_input_baselines(
+            data_rows=data_rows,
+            col=col,
+            dask_phase8_stats=dask_phase8_by_n,
+            ss_summary_rows=ss_summary_rows,
+            a1_raw_path=A1_COMMON_RAW_PATH,
+            a3_raw_path=A3_COMMON_RAW_PATH,
+            manifest_path=COMMON_BASELINES_MANIFEST_PATH,
             output_dir=OUTPUT_DIR,
         )
 
@@ -777,6 +1136,40 @@ def main() -> int:
         derived_artifacts["plot_strong_scaling_png"] = {
             "path": _rel_posix(ss_info["plot_png"]),
             "sha256": sha256_file(ss_info["plot_png"]),
+        }
+
+    if cb_info is not None:
+        provenance["a1_common_input_raw_csv"] = {
+            "path": _rel_posix(A1_COMMON_RAW_PATH),
+            "sha256": sha256_file(A1_COMMON_RAW_PATH),
+        }
+        provenance["a3_common_input_raw_csv"] = {
+            "path": _rel_posix(A3_COMMON_RAW_PATH),
+            "sha256": sha256_file(A3_COMMON_RAW_PATH),
+        }
+        provenance["common_input_baselines_manifest_json"] = {
+            "path": _rel_posix(COMMON_BASELINES_MANIFEST_PATH),
+            "sha256": sha256_file(COMMON_BASELINES_MANIFEST_PATH),
+        }
+        methodology["common_input_baselines_run_id"] = cb_info["run_id"]
+        methodology["common_input_3way_dimensions"] = cb_info["common_3way_sizes"]
+        methodology["common_input_extended_2way_dimensions"] = cb_info["extended_2way_sizes"]
+        methodology["dataset_separation_policy"] = (
+            "Controlled common-input comparisons (common_input_comparison.csv), historical "
+            "contextual summaries (contextual_baseline_comparison.csv), and Dask strong-scaling "
+            "results (strong_scaling_summary.csv) are strictly separated and never mixed."
+        )
+        derived_artifacts["common_input_baseline_summary_csv"] = {
+            "path": _rel_posix(cb_info["summary_csv"]),
+            "sha256": sha256_file(cb_info["summary_csv"]),
+        }
+        derived_artifacts["common_input_comparison_csv"] = {
+            "path": _rel_posix(cb_info["comparison_csv"]),
+            "sha256": sha256_file(cb_info["comparison_csv"]),
+        }
+        derived_artifacts["plot_common_input_comparison_png"] = {
+            "path": _rel_posix(cb_info["plot_png"]),
+            "sha256": sha256_file(cb_info["plot_png"]),
         }
 
     provenance["methodology"] = methodology

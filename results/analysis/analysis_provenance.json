@@ -1,8 +1,8 @@
 {
   "analysis_schema_version": "1.1",
-  "generated_utc": "2026-11-23T14:09:32.752432+00:00",
+  "generated_utc": "2026-11-26T16:34:35.482383+00:00",
   "source_script": "scripts/analyze_campaign.py",
-  "source_script_sha256": "1080CFEC929284FDC567DE3460FF1D1484177A95FE62CA292851FE014BA22892",
+  "source_script_sha256": "B96117975445901F1117EF679F42974FF0B4E072DFC3AB135CC3CCD86402E517",
   "target_campaign_run_id": "campaign_20261114_205134_1d126401af244671b4ca8708818549f3",
   "raw_measurements_csv": {
     "path": "results/raw/raw_measurements.csv",
@@ -19,6 +19,18 @@
   "strong_scaling_diagnostics_json": {
     "path": "results/metadata/strong_scaling_diagnostics.json",
     "sha256": "BB8A769C7175435311E6AAB9FEEE621EA7F283B8E3D004BEFBFB6C2700596811"
+  },
+  "a1_common_input_raw_csv": {
+    "path": "results/raw/a1_common_input_raw.csv",
+    "sha256": "D62258F3CC6CC3387D57B61E9CD0AAD40F2674E3BECB592EA48C43D4BDEF1728"
+  },
+  "a3_common_input_raw_csv": {
+    "path": "results/raw/a3_common_input_raw.csv",
+    "sha256": "107F7E94E119A01778F9BD31151BA0E202D7749431D2BA30EBEA7D85D05B1399"
+  },
+  "common_input_baselines_manifest_json": {
+    "path": "results/metadata/common_input_baselines_manifest.json",
+    "sha256": "33F50B0EA6227E2ECCE0693814323D581D8A890F77F7ED220532723DC697D3F3"
   },
   "methodology": {
     "quantile_method": "linear",
@@ -64,7 +76,19 @@
       8
     ],
     "strong_scaling_speedup_formula": "S_dist(p, n) = median(T_Dask_E2E(1, n)) / median(T_Dask_E2E(p, n))",
-    "strong_scaling_partial_timeout_rule": "Per docs/experimental_protocol.md \u00a711.3, official speedup and efficiency are omitted whenever completed_measured_count < expected_measured_count (e.g., p=10 timeout at n=1500)."
+    "strong_scaling_partial_timeout_rule": "Per docs/experimental_protocol.md \u00a711.3, official speedup and efficiency are omitted whenever completed_measured_count < expected_measured_count (e.g., p=10 timeout at n=1500).",
+    "common_input_baselines_run_id": "common_baselines_20261126_105840_cf1671d1ebec43d7afd7ba566b20fe65",
+    "common_input_3way_dimensions": [
+      250,
+      500,
+      750,
+      1000
+    ],
+    "common_input_extended_2way_dimensions": [
+      1500,
+      2000
+    ],
+    "dataset_separation_policy": "Controlled common-input comparisons (common_input_comparison.csv), historical contextual summaries (contextual_baseline_comparison.csv), and Dask strong-scaling results (strong_scaling_summary.csv) are strictly separated and never mixed."
   },
   "derived_artifacts": {
     "campaign_measurements_csv": {
@@ -81,11 +105,11 @@
     },
     "plot_dask_p1_scaling_png": {
       "path": "results/analysis/plot_dask_p1_scaling.png",
-      "sha256": "F000AAAB091D051A6221B8478EF2DD79F01AD9D335D21FB47519A05B90B42098"
+      "sha256": "2A8097DF719143DA7E011CC898460C27D7F9DCABA8E3BBA4BD74AB3866E5FE8F"
     },
     "plot_contextual_comparison_png": {
       "path": "results/analysis/plot_contextual_comparison.png",
-      "sha256": "AA810C44894482E9C763A46771953704BB6D35F1DF48D0B1516A5A1396E73D79"
+      "sha256": "934330C8D998E3D435CDEA93A61E8AAE0D4A9DA0F27C12DE48EE3CFF831C9350"
     },
     "strong_scaling_measurements_csv": {
       "path": "results/analysis/strong_scaling_measurements.csv",
@@ -98,6 +122,18 @@
     "plot_strong_scaling_png": {
       "path": "results/analysis/plot_strong_scaling.png",
       "sha256": "E213132C3C31C186AB420AEE498427AC4FA2EB2D5C9559CB185F822A36DE2E58"
+    },
+    "common_input_baseline_summary_csv": {
+      "path": "results/analysis/common_input_baseline_summary.csv",
+      "sha256": "FB183B7822D0E2C272248B8C5279F815CD573BC8F89CD24DEF25B689C0551FF9"
+    },
+    "common_input_comparison_csv": {
+      "path": "results/analysis/common_input_comparison.csv",
+      "sha256": "F2A968101FD404393733A0D1820AFE8BE96570EEC333AF66C6E1925BB024147F"
+    },
+    "plot_common_input_comparison_png": {
+      "path": "results/analysis/plot_common_input_comparison.png",
+      "sha256": "E95FFFE77D3E8E7BCB52D12B67DFA662FD96D8058421BFECD213FC7032A8D49C"
     }
   }
 }
