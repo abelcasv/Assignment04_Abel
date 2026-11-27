@@ -130,12 +130,12 @@ No AI agent may silently alter these decisions without explicit student authoriz
 ### DEC-01 — Instructor permission for local multiple workers
 - **Status:** **AUTHORIZED (2026-11-23) for local single-host multi-worker execution ($p > 1$)** via [`docs/decisions/DEC-01-instructor-permission.md`](docs/decisions/DEC-01-instructor-permission.md). *(Historical record: previously `BLOCKED / NOT COMPLETED` for $p > 1$ during Phases 1–10 while written instructor permission was absent; single-worker $p=1$ pilot and Phase 8 campaign completed under Gates G7–G9 and remain preserved intact.)*
 - **Rule:** Local multi-process execution with multiple workers ($p \in \{2, 4, 8, 10\}$) is permitted only when written authorization evidence exists in `docs/decisions/` (enforced fail-closed by `verify_multiworker_permission(p)`).
-- **Strong-Scaling Compliance & Topology Boundary:** `p=1` alone does not constitute a strong-scaling sweep. Authorized multi-worker runs ($p \in \{1, 2, 4, 8, 10\}$) execute on **one physical machine** (`physical_machine_count = 1`) over loopback TCP sockets (`127.0.0.1`) and shared DRAM/L3; they must be labeled strictly as local multi-process execution and **never** as multi-node cluster scaling or inter-machine network throughput. Multi-node execution remains **BLOCKED / NOT AVAILABLE**.
+- **Strong-Scaling Compliance & Topology Boundary:** `p=1` alone does not constitute a strong-scaling sweep. Authorized multi-worker runs ($p \in \{1, 2, 4, 8, 10\}$) execute on **one physical machine** (`physical_machine_count = 1`) over loopback TCP sockets (`127.0.0.1`) and shared DRAM/L3; they must be labeled strictly as local multi-process execution and **never** as multi-node cluster scaling or inter-machine network throughput. No multi-machine deployment was used in this campaign.
 
 ### DEC-02 — Available deployment topology
 - **Status:** **Confirmed Single Physical Machine**.
 - **Hardware:** Intel Core i5-1335U (10 physical cores: 2 P-cores, 8 E-cores; 12 logical processors), 16 GB RAM, Windows 11 Home 64-bit.
-- **Infrastructure:** No physical multi-node cluster, university HPC, or cloud infrastructure is currently accredited. Multi-node execution is **BLOCKED / NOT AVAILABLE**. Multi-worker local runs must be labeled accurately as single-machine multi-process execution and never as physical network or cluster scaling.
+- **Infrastructure:** No physical multi-node cluster, university HPC, or cloud infrastructure was used in this campaign. Multi-worker local runs must be labeled accurately as single-machine multi-process execution and never as physical network or cluster scaling.
 
 ### DEC-03 — Distributed framework selection
 - **Status:** **Approved (ADR-001)**: **Dask Distributed**.
@@ -192,9 +192,9 @@ No AI agent may silently alter these decisions without explicit student authoriz
     Results logged append-only with warm-ups identified and excluded from statistics. Pilot execution requires independent Stage 2 authorization.
 
 ### DEC-07 — Optional weak scaling
-- **Status:** **Deferred and BLOCKED**.
+- **Status:** **Optional — Not Included in Campaign**.
 - **Relation:** Theoretical equal-work formula for dense cubic multiplication is $n(p) = n(1) \cdot p^{1/3}$.
-- **Condition:** Requires completion and audit of the strong scaling study, approval of new input sizes, generation of verified input files, and explicit authorization.
+- **Scope Note:** Optional weak-scaling experiments were not included in this campaign, which focuses on strong scaling under the available single-host configuration.
 
 ---
 
@@ -368,7 +368,7 @@ Assignment04_Abel/
 | Gate | Identifier | Status | Evidence Summary |
 |---|---|---|---|
 | G0 | Discovery | **PASSED** | Environment, host, baseline repos, and official PDF requirements inventoried. |
-| G1 | Permission / Topology | **PASSED (Single-Host Local `p >= 1`, 2026-11-23) / BLOCKED (Multi-Node)** | Authorized on 2026-11-23 via `docs/decisions/DEC-01-instructor-permission.md` for single-host local multi-process strong scaling (`physical_machine_count=1`). Multi-node cluster execution remains **BLOCKED / NOT AVAILABLE**; optional weak scaling remains **DEFERRED (DEC-07)**. |
+| G1 | Permission / Topology | **PASSED (Single-Host Local `p >= 1`, 2026-11-23)** | Authorized on 2026-11-23 via `docs/decisions/DEC-01-instructor-permission.md` for single-host local multi-process strong scaling (`physical_machine_count=1`); no multi-machine deployment was used, and optional weak scaling was not included (`DEC-07`). |
 | G2 | Framework / Architecture | **PASSED** | Dask Distributed and 2D block binary-tree reduction implemented and documented. |
 | G3 | Provenance / Inputs | **PASSED** | Baseline snapshots (`baselines/`) and common deterministic inputs (`data/SHA256SUMS.txt`) frozen and verified. |
 | G4 | Protocol / Budgets | **PASSED** | `docs/experimental_protocol.md` synchronized with full chronological trail. |
@@ -377,7 +377,7 @@ Assignment04_Abel/
 | G7 | Environment | **PASSED** | Windows `LocalCluster` `1 + p` OS PID mapping, 1 thread/worker, single-thread OpenBLAS (`threadpoolctl`), and RAM telemetry verified. |
 | G8 | Benchmarks (Dask + Common-Input Baselines) | **PASSED** | Frozen Phase 7/8 `p=1` Dask dataset (48 rows), DEC-01 local strong-scaling Dask dataset (90 rows) + `n=1000` diagnostics, and controlled common-input A1 (`25` rows) & A3 (`540` rows) baseline runs preserved cleanly without mixing datasets. |
 | G9 | Data Audit and Analysis | **PASSED** | Common-input comparisons, historical contextual summaries, strong-scaling summaries, 4 publication figures, and SHA-256 provenance manifest generated and verified offline. |
-| G10 | Final Audit | **PASSED** | Code contracts, unit tests, dataset/provenance checks, `README.md`, `report/report.md`, and `report/Assignment04_Report.tex`/`.pdf` reconciled against the official PDF. |
+| G10 | Final Audit | **PASSED** | Code contracts, unit tests, dataset/provenance checks, `README.md`, and `report/Assignment04_Report.tex`/`.pdf` reconciled against the official PDF. |
 
 ---
 

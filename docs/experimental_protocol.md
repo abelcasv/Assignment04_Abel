@@ -712,7 +712,7 @@ Todas las figuras tendrán ejes, unidades, `n`, `b`, workers/threads, topología
 | G7 | Environment / Topology | **PASSED** | Topología `1+p` PIDs en LocalCluster Windows, 1 hilo/worker, OpenBLAS a 1 hilo vía `threadpoolctl` y memoria base verificados. |
 | G8 | Pilot & Full Experiment | **PASSED** | Pilot 1 (timeout 30 s) diagnosticado, Pilot 2 (6/6) y campaña Phase 8 (36/36, $p=1$; 48 filas históricas preservadas) más campaña autorizada DEC-01 de strong scaling local (`p ∈ {1,2,4,8,10}`, 90 filas anexadas) y pase diagnóstico separado ($n=1000$) registrados. |
 | G9 | Data Audit & Analysis | **PASSED** | 138 registros brutos (48 históricos + 90 strong scaling) auditados; tablas derivadas, 3 figuras y `analysis_provenance.json` (13/13 SHA-256) generados y verificados por `scripts/analyze_campaign.py` y `scripts/verify_provenance.py`. |
-| G10 | Final Audit | **PASSED** | Código, reproducibilidad en clon limpio, `README.md`, `report/report.md`, `report/Assignment04_Report.tex`/`.pdf` y especificaciones reconciliados. |
+| G10 | Final Audit | **PASSED** | Código, reproducibilidad en clon limpio, `README.md`, `report/Assignment04_Report.tex`/`.pdf` y especificaciones reconciliados. |
 
 ### 12.3 Secuencia posterior de fases y reglas de coherencia
 
