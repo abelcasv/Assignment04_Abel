@@ -1,6 +1,6 @@
 {
   "generated_utc": "2026-11-23T13:52:39.710955+00:00",
-  "protocol_reference": "docs/experimental_protocol.md \u00a77.1 (separate from primary timed campaign)",
+  "specification_reference": "SPEC.md (separate from primary timed campaign)",
   "n": 1000,
   "block_size": 250,
   "physical_machine_count": 1,

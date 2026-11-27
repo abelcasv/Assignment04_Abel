@@ -2,7 +2,7 @@
   "analysis_schema_version": "1.1",
   "generated_utc": "2026-11-26T16:34:35.482383+00:00",
   "source_script": "scripts/analyze_campaign.py",
-  "source_script_sha256": "B96117975445901F1117EF679F42974FF0B4E072DFC3AB135CC3CCD86402E517",
+  "source_script_sha256": "B6881E91F2392A3A5267E1537E263FCE599013A0B1B4B5946C0017E7A94B9039",
   "target_campaign_run_id": "campaign_20261114_205134_1d126401af244671b4ca8708818549f3",
   "raw_measurements_csv": {
     "path": "results/raw/raw_measurements.csv",
@@ -14,11 +14,11 @@
   },
   "strong_scaling_manifest_json": {
     "path": "results/metadata/strong_scaling_manifest.json",
-    "sha256": "22635DFA7B84FB23D339EB56273487F3E12CB0B9BB6466CC090775CF366F2EAD"
+    "sha256": "27DA774518687AC2DE143F78D7C4714BD2DED6168E0B75F300FF6BBBA176EF61"
   },
   "strong_scaling_diagnostics_json": {
     "path": "results/metadata/strong_scaling_diagnostics.json",
-    "sha256": "BB8A769C7175435311E6AAB9FEEE621EA7F283B8E3D004BEFBFB6C2700596811"
+    "sha256": "2E0FB87C042EC56C7F20E6712D019BB0D273CB7BA15FD57DD71C5F5943F87334"
   },
   "a1_common_input_raw_csv": {
     "path": "results/raw/a1_common_input_raw.csv",
@@ -49,7 +49,7 @@
     "historical_48_rows_prefix_sha256": "3D9D721343D379C26F61DD6B4669979F6E7E5262E0D8F6E96CD4D26B1F0FE92C",
     "contextual_comparison_formula": "CTR = median(T_baseline) / median(T_Dask_p1)",
     "contextual_comparison_note": "Contextual duration comparison across differing timing boundaries, not speedups.",
-    "reproducibility_note": "The derived artifacts passed independent numerical verification, source inspection, row-level reconciliation, and cryptographic integrity checks. Offline regeneration covers both the frozen Phase 8 p=1 campaign and the DEC-01 authorized local multi-worker strong-scaling campaign.",
+    "reproducibility_note": "The derived artifacts passed independent numerical verification, source inspection, row-level reconciliation, and cryptographic integrity checks. Offline regeneration covers both the frozen single-worker (p=1) campaign and the local multi-worker strong-scaling campaign.",
     "strong_scaling_run_ids": [
       "campaign_20261123_132555_4e196b9114914be79c19cbdc838b9a13",
       "campaign_20261123_132816_17542d5a8b3b40a6b8882965174b93f0",
@@ -76,7 +76,7 @@
       8
     ],
     "strong_scaling_speedup_formula": "S_dist(p, n) = median(T_Dask_E2E(1, n)) / median(T_Dask_E2E(p, n))",
-    "strong_scaling_partial_timeout_rule": "Per docs/experimental_protocol.md \u00a711.3, official speedup and efficiency are omitted whenever completed_measured_count < expected_measured_count (e.g., p=10 timeout at n=1500).",
+    "strong_scaling_partial_timeout_rule": "Per SPEC.md, official speedup and efficiency are omitted whenever completed_measured_count < expected_measured_count (e.g., p=10 timeout at n=1500).",
     "common_input_baselines_run_id": "common_baselines_20261126_105840_cf1671d1ebec43d7afd7ba566b20fe65",
     "common_input_3way_dimensions": [
       250,

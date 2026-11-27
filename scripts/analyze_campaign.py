@@ -5,7 +5,7 @@ Assignment 4: Distributed Matrix Multiplication
 Course: BIG DATA, Academic Year 2026-2027, ULPGC
 
 This script performs offline statistical analysis and contextual comparisons
-using the certified Phase 8.3 experimental records.
+using the certified experimental records.
 Strictly offline: Does NOT start Dask, allocate clusters, or execute benchmarks.
 """
 
@@ -46,7 +46,7 @@ OUTPUT_DIR = os.path.join(REPO_ROOT, "results", "analysis")
 
 TARGET_RUN_ID = "campaign_20261114_205134_1d126401af244671b4ca8708818549f3"
 EXPECTED_SIZES = [250, 500, 750, 1000, 1500, 2000]
-HISTORICAL_RAW_LINE_COUNT = 49  # Header + 48 original Phase 7/8 rows
+HISTORICAL_RAW_LINE_COUNT = 49  # Header + 48 original single-worker pilot and campaign rows
 
 
 def sha256_file(filepath: str) -> str:
@@ -408,7 +408,7 @@ def _analyze_strong_scaling(
 ) -> Dict[str, Any]:
     """
     Performs offline strong-scaling analysis from local multi-worker campaign rows.
-    Strictly follows docs/experimental_protocol.md §11.3: speedup and efficiency are
+    Strictly follows SPEC.md: speedup and efficiency are
     computed only when all expected measured repetitions completed without timeout.
     """
     with open(manifest_path, "r", encoding="utf-8") as f:
@@ -515,7 +515,7 @@ def _analyze_strong_scaling(
                 and (v := _parse_optional_float(r[col["dask_managed_memory_mib"]])) is not None
             ]
 
-            # Protocol §11.3: official S(p) and E(p) only when all 5 reps completed
+            # Official S(p) and E(p) are computed only when all 5 reps completed
             if status_summary == "COMPLETED" and n in p1_medians and median_v and median_v > 0.0:
                 speedup = p1_medians[n] / median_v
                 efficiency = speedup / p
@@ -739,7 +739,7 @@ def format_ratio_interpretation(ratio: float) -> str:
 def main() -> int:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     print("================================================================================")
-    print("ASSIGNMENT 4 — PHASE 8.4 OFFLINE STATISTICAL ANALYSIS")
+    print("ASSIGNMENT 4 — OFFLINE STATISTICAL ANALYSIS")
     print("================================================================================")
 
     # 1. Audit required inputs before writing any outputs
@@ -1010,7 +1010,7 @@ def main() -> int:
     def _rel_posix(path: str) -> str:
         return os.path.relpath(path, REPO_ROOT).replace(os.sep, "/")
 
-    # 5. Optional Strong-Scaling Analysis (authorized local multi-worker campaign)
+    # 5. Optional Strong-Scaling Analysis (local multi-worker campaign)
     ss_info: Dict[str, Any] | None = None
     ss_summary_rows: List[Dict[str, Any]] = []
     if STRONG_SCALING_MANIFEST_PATH and os.path.isfile(STRONG_SCALING_MANIFEST_PATH):
@@ -1085,7 +1085,7 @@ def main() -> int:
         "reproducibility_note": (
             "The derived artifacts passed independent numerical verification, source inspection, "
             "row-level reconciliation, and cryptographic integrity checks. Offline regeneration "
-            "covers both the frozen Phase 8 p=1 campaign and the DEC-01 authorized local multi-worker "
+            "covers both the frozen single-worker (p=1) campaign and the local multi-worker "
             "strong-scaling campaign."
         ),
     }
@@ -1122,7 +1122,7 @@ def main() -> int:
         methodology["strong_scaling_workers_completed_all_sizes"] = ss_info["workers_completed_all_sizes"]
         methodology["strong_scaling_speedup_formula"] = "S_dist(p, n) = median(T_Dask_E2E(1, n)) / median(T_Dask_E2E(p, n))"
         methodology["strong_scaling_partial_timeout_rule"] = (
-            "Per docs/experimental_protocol.md §11.3, official speedup and efficiency are omitted "
+            "Per SPEC.md, official speedup and efficiency are omitted "
             "whenever completed_measured_count < expected_measured_count (e.g., p=10 timeout at n=1500)."
         )
         derived_artifacts["strong_scaling_measurements_csv"] = {

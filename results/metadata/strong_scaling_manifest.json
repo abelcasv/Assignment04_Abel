@@ -1,7 +1,6 @@
 {
   "schema_version": "1.0",
   "generated_utc": "2026-11-23T13:25:55.023022+00:00",
-  "dec_01_authorization_file": "docs/decisions/DEC-01-instructor-permission.md",
   "physical_machine_count": 1,
   "block_size": 250,
   "sizes": [
