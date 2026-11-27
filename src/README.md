@@ -44,7 +44,7 @@ $$C_{i, j} = \sum_{k=0}^{N_b-1} A_{i, k} \times B_{k, j}$$
 
 1. **Multiplication Stage:**
    For each block coordinate $(i, j, k) \in \{0, \dots, N_b-1\}^3$, Dask schedules an independent task:
-   $$P_{i, j, k} = \text{block\_multiply}(A_{i, k}, B_{k, j}) = A_{i, k} \times B_{k, j}$$
+   $$P_{i, j, k} = \mathrm{block\_multiply}(A_{i, k}, B_{k, j}) = A_{i, k} \times B_{k, j}$$
    executed via `numpy.matmul` on worker processes with internal BLAS/OpenMP threading restricted to 1 (`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `NUMEXPR_NUM_THREADS=1`).
    Total multiplication tasks: $N_b^3$.
 
@@ -64,7 +64,7 @@ $$C_{i, j} = \sum_{k=0}^{N_b-1} A_{i, k} \times B_{k, j}$$
 
 When matrix dimension $n$ is not divisible by block size $b$ (e.g., during irregular edge validation $n=4, b=3$):
 - **Exact Truncated Dimensions:** The final block in each row/column uses exact dimensions:
-  $$\text{block\_rows} = \min(b, n - i \cdot b), \quad \text{block\_cols} = \min(b, n - j \cdot b)$$
+  $$\mathrm{block\_rows} = \min(b, n - i \cdot b), \quad \mathrm{block\_cols} = \min(b, n - j \cdot b)$$
 - **Zero-Padding Forbidden:** Zero-padding is strictly prohibited by [`SPEC.md`](../SPEC.md).
 - **Inner Dimension Invariant:** For every multiplication $A_{i, k} \times B_{k, j}$, the column count of $A_{i, k}$ matches the row count of $B_{k, j}$ identically ($\min(b, n - k \cdot b)$).
 - **C-Order Memory Contiguity:** Every extracted block and assembled matrix is forced to contiguous C-order layout (`np.ascontiguousarray(..., dtype=np.float64)`).
@@ -73,7 +73,7 @@ When matrix dimension $n$ is not divisible by block size $b$ (e.g., during irreg
 
 ## 4. Primary Timing Boundary Contract
 
-The Dask multiplication timer ($T_{\text{Dask\_E2E}}$) measures wall-clock time via `time.perf_counter()` adhering to [`SPEC.md`](../SPEC.md):
+The Dask multiplication timer ($T_{\mathrm{Dask\_E2E}}$) measures wall-clock time via `time.perf_counter()` adhering to [`SPEC.md`](../SPEC.md):
 
 ```text
 [Excluded from Timer]

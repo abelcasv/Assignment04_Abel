@@ -12,7 +12,7 @@
 This document specifies the architecture, data contracts, baseline provenance, timing and memory boundaries, operational safeguards, and verification criteria for the Assignment 4 empirical study of distributed dense matrix multiplication ($C = A \times B$) using **Dask Distributed**.
 
 The investigation evaluates:
-1. **Computation, Scheduling, and Communication Overhead:** End-to-end distributed latency ($T_{\text{Dask\_E2E}}$), task-graph submission, loopback serialization/transfer, and result gathering across increasing matrix dimensions $n \in \{250, 500, 750, 1000, 1500, 2000\}$ with block dimension $b = 250$.
+1. **Computation, Scheduling, and Communication Overhead:** End-to-end distributed latency ($T_{\mathrm{Dask\_E2E}}$), task-graph submission, loopback serialization/transfer, and result gathering across increasing matrix dimensions $n \in \{250, 500, 750, 1000, 1500, 2000\}$ with block dimension $b = 250$.
 2. **Controlled Common-Input Cross-Assignment Comparisons:** Comparing Dask Distributed against the reused Assignment 1 sequential C implementation ([`baselines/a1_sequential/`](baselines/a1_sequential/)) and Assignment 3 sequential and OpenMP C implementations ([`baselines/a3_openmp/`](baselines/a3_openmp/)) on identical deterministic IEEE 754 `binary64` input matrices in `data/dense/` (`input_sha256_verified_identical = True`), while keeping historical prior-assignment summaries ([`data/baselines/`](data/baselines/)) strictly separate.
 3. **Single-Host Multi-Worker Strong Scaling and Per-Worker Memory:** Evaluating fixed matrix dimensions $n \in \{1000, 1500, 2000\}$ across $p \in \{1, 2, 4, 8, 10\}$ independent Dask worker processes (`1 + p` OS PIDs, `threads_per_worker = 1`, `OPENBLAS_NUM_THREADS = 1`) communicating over `127.0.0.1` loopback TCP on one physical host (`physical_machine_count = 1`), together with a separate $n = 1000$ diagnostic pass measuring per-worker OS RSS (`process_bytes`), Dask-managed memory (`managed_bytes`), disk spill, task distribution, and driver phase durations.
 4. **Scope Boundaries:** All distributed experiments ran on a single physical machine (`Intel Core i5-1335U`, `2` Performance cores + `8` Efficient cores, `16.0 GB` RAM, Windows 11 Home 64-bit). No physical multi-node cluster deployment was used, and optional weak-scaling experiments ($n(p) = n(1) \cdot p^{1/3}$) were not included in this strong-scaling-focused campaign.
@@ -25,8 +25,8 @@ The investigation evaluates:
 > How does the end-to-end wall-clock performance, per-process/per-worker memory footprint, and scheduling/communication overhead of a distributed 2D block matrix multiplication implementation using Dask Distributed scale as matrix dimensions increase and across local worker configurations, and how does it compare on identical IEEE 754 `binary64` input matrices against sequential (Assignment 1) and shared-memory parallel OpenMP (Assignment 3) implementations?
 
 ### 2.2 Hypotheses
-- **$H_1$ (Small-Dimension Framework Overhead, $n \le 500$):** For small matrices ($n \le 500$), DAG construction, centralized scheduling, loopback serialization, and driver gathering exceed raw kernel computation time, making Dask slower than native in-process C baselines ($\text{Ratio} = \tilde{T}_{\text{baseline}} / \tilde{T}_{\text{Dask}} < 1$).
-- **$H_2$ (Larger-Dimension Scaling, Crossovers & Multi-Worker Granularity, $n \ge 1000$):** Cubic arithmetic growth ($2n^3$) amortizes fixed framework costs against unblocked baselines at $p = 1$ once working sets exceed the shared `12 MB` L3 cache, and enables positive multi-worker speedup ($S_{\text{dist}}(p, n) > 1$) only when task granularity is sufficiently coarse.
+- **$H_1$ (Small-Dimension Framework Overhead, $n \le 500$):** For small matrices ($n \le 500$), DAG construction, centralized scheduling, loopback serialization, and driver gathering exceed raw kernel computation time, making Dask slower than native in-process C baselines ($\mathrm{Ratio} = \tilde{T}_{\mathrm{baseline}} / \tilde{T}_{\mathrm{Dask}} < 1$).
+- **$H_2$ (Larger-Dimension Scaling, Crossovers & Multi-Worker Granularity, $n \ge 1000$):** Cubic arithmetic growth ($2n^3$) amortizes fixed framework costs against unblocked baselines at $p = 1$ once working sets exceed the shared `12 MB` L3 cache, and enables positive multi-worker speedup ($S_{\mathrm{dist}}(p, n) > 1$) only when task granularity is sufficiently coarse.
 - **$H_3$ (Single-Host Worker Saturation):** Increasing worker processes past the `2` Performance cores on a single asymmetric host is expected to yield non-monotonic scaling limits as centralized scheduler contention, loopback IPC overhead, and hybrid P/E-core scheduling effects grow.
 - **$H_4$ (Non-Equivalent Timing & Architectural Boundaries):** Even on byte-identical input matrices, runtime ratios between C/OpenMP (`TB_A1_KERNEL_QPC`, `TB_A3_KERNEL_QPC`) and Dask/OpenBLAS (`TB_DASK_E2E`) reflect distinct timing boundaries, memory spaces, and runtime backends rather than isolated algorithmic speedups.
 
@@ -37,7 +37,7 @@ The investigation evaluates:
 ### 3.1 Matrix Representation and 2D Block Partitioning
 - Input and output operands $A, B, C \in \mathbb{R}^{n \times n}$ are square dense matrices stored in IEEE 754 `binary64` (`float64`).
 - Matrices are partitioned into an $N_b \times N_b$ grid using reference block size $b = 250$, where $N_b = \lceil n/b \rceil$.
-- **Edge-Block Truncation:** When $n$ is not divisible by $b$, edge blocks adopt exact truncated dimensions $\text{rows} = \min(b, n - i \cdot b)$ and $\text{cols} = \min(b, n - j \cdot b)$ without zero-padding, enforced in contiguous C-order (`np.ascontiguousarray(..., dtype=np.float64)`).
+- **Edge-Block Truncation:** When $n$ is not divisible by $b$, edge blocks adopt exact truncated dimensions $\mathrm{rows} = \min(b, n - i \cdot b)$ and $\mathrm{cols} = \min(b, n - j \cdot b)$ without zero-padding, enforced in contiguous C-order (`np.ascontiguousarray(..., dtype=np.float64)`).
 
 ### 3.2 Scheduler-Managed DAG and Pairwise Binary-Tree Reduction
 - Each output block $(i, j) \in \{0, \dots, N_b - 1\}^2$ is computed as:
@@ -46,7 +46,7 @@ The investigation evaluates:
   1. **Multiplication Stage:** $N_b^3$ independent `block_multiply` tasks compute partial products $P_{i, j, k} = A_{i, k} \times B_{k, j}$ via single-threaded `numpy.matmul`.
   2. **Reduction Stage:** For each output block $(i, j)$, partial products are reduced pairwise via `block_add` across $\lceil \log_2 N_b \rceil$ binary-tree stages ($N_b - 1$ additions per output block; total DAG tasks $= N_b^3 + N_b^2(N_b - 1) = 2N_b^3 - N_b^2$, reaching `960` tasks at $n = 2000$).
   3. **Assembly & Checksum Barrier:** Gathered output blocks are assembled into dense matrix $C$ in driver memory and consumed before timer stop via:
-     $$\text{checksum} = \sum_{i=0}^{n-1} \sum_{j=0}^{n-1} C_{i, j} = \text{float}(\text{np.sum}(C, \text{dtype}=\text{np.float64}))$$
+     $$\mathrm{checksum} = \sum_{i=0}^{n-1} \sum_{j=0}^{n-1} C_{i, j} = \mathrm{float}(\mathrm{np.sum}(C, \mathrm{dtype}=\mathrm{np.float64}))$$
 
 ### 3.3 Process Topology and Thread Isolation
 - `LocalCluster(processes=True, n_workers=p, threads_per_worker=1, memory_limit=None)` spawns `1` driver process (`Client`, `LocalCluster`, in-process `Scheduler`, and `Nanny`) plus $p$ child worker processes (`1 + p` unique OS PIDs: `2, 3, 5, 9, 11` for $p \in \{1, 2, 4, 8, 10\}$) on `physical_machine_count = 1`.
@@ -81,7 +81,7 @@ Unmodified source snapshots from the author's prior assignments are vendored und
 
 ### 5.1 Deterministic Dataset Policy
 - Generated by [`scripts/generate_dataset.py`](scripts/generate_dataset.py) using Python's standard library `random.Random(42 + n)` (MT19937), uniform $[0.0, 1.0)$, IEEE 754 `binary64` formatted as `%.17g` with Unix LF (`\n`) line endings, and certified by `20` SHA-256 digests in [`data/SHA256SUMS.txt`](data/SHA256SUMS.txt) (verified by [`scripts/verify_dataset.py`](scripts/verify_dataset.py)).
-- Under Storage Policy Option B, the `14` dense CSV matrices in `data/dense/` (~310 MB) are excluded from Git via `.gitignore` and deterministically reconstructed on fresh clones (see [`data/README.md`](data/README.md)).
+- To avoid repository bloat and large-file limits, the `14` dense CSV matrices in `data/dense/` (~310 MB) are excluded from Git via `.gitignore` and deterministically reconstructed on fresh clones (see [`data/README.md`](data/README.md)).
 
 ### 5.2 Numerical Correctness Fixtures and Tolerances
 Validated by [`scripts/verify_correctness.py`](scripts/verify_correctness.py) and `python -B -m src.cli --validate-fixtures` (`6/6 PASS`):
@@ -90,7 +90,7 @@ Validated by [`scripts/verify_correctness.py`](scripts/verify_correctness.py) an
 3. Multiplicative identity ($A \times I = A$, $n = 4, b = 2$).
 4. Multiplicative zero ($A \times 0 = 0$, $n = 4, b = 2$).
 5. Element-wise cross-check at $n = 250$ against [`data/validation/reference/C_250.csv`](data/validation/reference/C_250.csv) (pure-Python scalar triple-loop reference, SHA-256 `598e9a9fc8f0c8db1d5da277f4d93561ad83e2df77e3fcb5f968f67b8033909e`) under:
-   $$|C_{\text{test}}[i, j] - C_{\text{ref}}[i, j]| \le \text{atol} + \text{rtol} \cdot |C_{\text{ref}}[i, j]|, \quad \text{atol} = 10^{-9},\ \text{rtol} = 10^{-12}$$
+   $$|C_{\mathrm{test}}[i, j] - C_{\mathrm{ref}}[i, j]| \le \mathrm{atol} + \mathrm{rtol} \cdot |C_{\mathrm{ref}}[i, j]|, \quad \mathrm{atol} = 10^{-9},\ \mathrm{rtol} = 10^{-12}$$
    achieving $\max|\Delta| = 1.137 \times 10^{-13}$ ($b = 250$) and $1.208 \times 10^{-13}$ ($b = 100$), plus exact `0.0` element-wise difference across all `250,000` elements of $C_{500}$ ($p = 2$ vs. $p = 1$).
 6. Full-matrix checksum consumption and finiteness verification (zero `NaN` or `Inf` values).
 
@@ -119,7 +119,7 @@ Memory metrics across systems have different boundaries and are reported separat
   1. [`results/raw/raw_measurements.csv`](results/raw/raw_measurements.csv) (`138` Dask rows in a 44-column append-only schema: `48` single-worker pilot/campaign rows in lines 1–49 + `90` strong-scaling rows in lines 50–139).
   2. [`results/raw/a1_common_input_raw.csv`](results/raw/a1_common_input_raw.csv) (`25` rows) and [`results/raw/a3_common_input_raw.csv`](results/raw/a3_common_input_raw.csv) (`540` rows) measured on identical `data/dense/` matrices.
   3. [`data/baselines/a1_summary.csv`](data/baselines/a1_summary.csv) and [`data/baselines/a3_parallel_results_summary.csv`](data/baselines/a3_parallel_results_summary.csv) preserved strictly for historical contextual reference.
-- **Statistical Formulas ([`scripts/analyze_campaign.py`](scripts/analyze_campaign.py)):** Central tendency and spread use the median ($\tilde{T}$) and linear interquartile range ($\text{IQR} = Q_3 - Q_1$). Strong-scaling speedup $S_{\text{dist}}(p, n) = \tilde{T}(1, n) / \tilde{T}(p, n)$ and efficiency $E_{\text{dist}}(p, n) = S_{\text{dist}}(p, n) / p$ are computed relative to the dedicated $p = 1$ strong-scaling sub-campaign and omitted (`N/A`) whenever a configuration has fewer than `5` completed measured repetitions (such as $p = 10$).
+- **Statistical Formulas ([`scripts/analyze_campaign.py`](scripts/analyze_campaign.py)):** Central tendency and spread use the median ($\tilde{T}$) and linear interquartile range ($\mathrm{IQR} = Q_3 - Q_1$). Strong-scaling speedup $S_{\mathrm{dist}}(p, n) = \tilde{T}(1, n) / \tilde{T}(p, n)$ and efficiency $E_{\mathrm{dist}}(p, n) = S_{\mathrm{dist}}(p, n) / p$ are computed relative to the dedicated $p = 1$ strong-scaling sub-campaign and omitted (`N/A`) whenever a configuration has fewer than `5` completed measured repetitions (such as $p = 10$).
 - **Cryptographic Provenance ([`results/analysis/analysis_provenance.json`](results/analysis/analysis_provenance.json)):** Indexes all `19` raw CSV, metadata JSON, analysis script, derived CSV, and PNG plot artifacts by SHA-256 digest, verified read-only via [`scripts/verify_provenance.py`](scripts/verify_provenance.py).
 
 ---
