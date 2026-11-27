@@ -12,7 +12,7 @@
 This repository implements and evaluates dense square matrix multiplication ($C = A \times B$) in **Dask Distributed** using a **2D block decomposition** ($b = 250$) and a **pairwise binary-tree reduction** over IEEE 754 `binary64` (`float64`) matrices.
 
 - **Single-Worker & Cross-Assignment Common-Input Comparison:** Compares Dask (`p = 1` and `p = 2`) against the frozen Assignment 1 sequential C baseline ([`baselines/a1_sequential/`](baselines/a1_sequential/), origin commit `90681e85949b6d65bdbcfef702b6306b0003f971`) and Assignment 3 sequential and OpenMP C baselines ([`baselines/a3_openmp/`](baselines/a3_openmp/), origin commit `23cffbc82c155b6c3de24b3c149b509b63fc870b`) on the **exact same deterministic `data/dense/` matrices** (`input_sha256_verified_identical = True`), while keeping non-equivalent timing boundaries explicit (`TB_DASK_E2E` vs. `TB_A1_KERNEL_QPC` and `TB_A3_KERNEL_QPC`) and separating historical prior-assignment summaries ([`data/baselines/`](data/baselines/)).
-- **Single-Host Distributed Strong Scaling:** Evaluates fixed matrix dimensions $n \in \{1000, 1500, 2000\}$ across $p \in \{1, 2, 4, 8, 10\}$ independent Dask worker processes (`1 + p` OS PIDs, `threads_per_worker = 1`, `OPENBLAS_NUM_THREADS = 1`) communicating over `127.0.0.1` loopback TCP on **one physical machine** (`physical_machine_count = 1`, recorded in [`docs/decisions/DEC-01-instructor-permission.md`](docs/decisions/DEC-01-instructor-permission.md)). No multi-machine deployment was used, and optional weak-scaling experiments were not included in this campaign.
+- **Single-Host Distributed Strong Scaling:** Evaluates fixed matrix dimensions $n \in \{1000, 1500, 2000\}$ across $p \in \{1, 2, 4, 8, 10\}$ independent Dask worker processes (`1 + p` OS PIDs, `threads_per_worker = 1`, `OPENBLAS_NUM_THREADS = 1`) communicating over `127.0.0.1` loopback TCP on **one physical machine** (`physical_machine_count = 1`). No multi-machine deployment was used, and optional weak-scaling experiments were not included in this campaign.
 
 Full methodology, hypotheses, statistical tables, figures, discussion, and references are presented in [`report/Assignment04_Report.pdf`](report/Assignment04_Report.pdf).
 
@@ -32,7 +32,7 @@ Implemented under [`src/`](src/) (detailed module contracts in [`src/README.md`]
 - **Numerical Correctness:** `6/6` validation checks pass (`atol = 1e-9`, `rtol = 1e-12`), achieving $\max|\Delta| = 1.137 \times 10^{-13}$ ($b = 250$) against the scalar-Python reference [`data/validation/reference/C_250.csv`](data/validation/reference/C_250.csv), exact `0.0` element-wise difference on $C_{500}$ (`p = 2` vs. `p = 1`), and exact `%.17g` checksum invariance across all `77` completed strong-scaling rows.
 - **Single-Worker Scaling (`p = 1, b = 250`):** Median $T_{\text{Dask\_E2E}}$ grows from `0.0336 s` (`IQR = 0.0032 s`) at `n = 250` to `0.9318 s` at `n = 1000` and `7.4963 s` (`IQR = 0.0952 s`) at `n = 2000`.
 - **Controlled Common-Input Comparison (`data/dense/`):** At `n = 250` (`1.43 MiB` across three matrices, within the shared `12 MB` L3 cache), every native C baseline runs faster than Dask `p = 1` (`0.0195 s` A1 C; `0.0023–0.0085 s` A3 C/OpenMP). Dask `p = 1` overtakes unblocked `A1 C` from `n = 500` (`0.2278 s` $\to$ `4.0157 s` at `n = 1000`) and untiled single-thread A3 from `n = 1500` (`3.7641 s` $\to$ `15.5009 s` at `n = 2000`), while cache-blocked `seq_tiled_b32` (`4.6706 s` at `n = 2000`) and shared-memory OpenMP (`omp_tiled_b32`: `0.8571 s` at `t = 8`, `3.2325 s` at `t = 10`) remain faster.
-- **Single-Host Multi-Worker Strong Scaling (`p` in `{1, 2, 4, 8, 10}`):** Positive median speedup occurs solely at `n = 2000, p = 2` (`9.5635 s` vs. `11.6333 s`, $S_{\text{dist}} = 1.22\times$, $E_{\text{dist}} = 60.8\%$). Configurations with `p` in `{4, 8}` show steep degradation across all tested matrix sizes ($S(4) = 0.21\times\text{--}0.77\times$, $S(8) = 0.12\times\text{--}0.34\times$), with `scatter + wait + gather` representing `96.11%` of wall-clock latency at `p = 8, n = 1000` (`0 B` disk spill; `84.60–113.62 MiB` per-worker OS RSS). The `p = 10` campaign encountered the `120.0 s` timeout (`131.92 s` on `n = 1500` rep 5), leaving `n = 1500` partially completed (`4/5`) and `n` in `{1000, 2000}` unexecuted (`0/5`).
+- **Single-Host Multi-Worker Strong Scaling (`p` in `{1, 2, 4, 8, 10}`):** Positive median speedup occurs solely at `n = 2000, p = 2` (`9.5635 s` vs. `11.6333 s`, $S_{\text{dist}} = 1.22\times$, $E_{\text{dist}} = 60.8\%$). Configurations with `p` in `{4, 8}` show steep degradation across all tested matrix sizes ($S(4) = 0.21\times\text{--}0.77\times$, $S(8) = 0.12\times\text{--}0.34\times$), with `scatter + wait + gather` representing `96.11%` of wall-clock latency at `p = 8, n = 1000` (`0 B` disk spill; `84.60–113.62 MiB` per-worker OS RSS), a pattern consistent with centralized scheduler contention, loopback IPC overhead, and asymmetric P/E-core behavior contributing to the slowdown (not individually isolated). The `p = 10` campaign encountered the `120.0 s` timeout (`131.92 s` on `n = 1500` rep 5), leaving `n = 1500` partially completed (`4/5`) and `n` in `{1000, 2000}` unexecuted (`0/5`).
 
 ---
 
@@ -91,8 +91,8 @@ python -B scripts/run_strong_scaling.py --pilot-p1-p2
 python -B scripts/run_strong_scaling.py --campaign
 python -B scripts/run_strong_scaling.py --diagnostics-only
 
-# Controlled common-input A1 & A3 C/OpenMP suite (~18 min; pass --overwrite only if replacing existing CSVs)
-python -B scripts/run_common_input_baselines.py --overwrite
+# Controlled common-input A1 & A3 C/OpenMP suite (~18 min; pass --overwrite only when deliberately replacing existing results)
+python -B scripts/run_common_input_baselines.py
 ```
 
 ### 5.4 Compiling the Canonical PDF Report
@@ -111,7 +111,7 @@ Pop-Location
 ```text
 Assignment04_Abel/
 ├── README.md                         # Concise project overview and execution guide
-├── SPEC.md                           # Supplementary technical specification and module contracts
+├── SPEC.md                           # Technical specification, provenance, and module contracts
 ├── requirements.txt                  # Pinned Python dependencies
 ├── baselines/                        # Frozen unmodified A1 (C) and A3 (C/OpenMP) snapshots
 ├── data/
@@ -120,10 +120,6 @@ Assignment04_Abel/
 │   ├── baselines/                    # Preserved historical A1/A3 summary CSVs (contextual only)
 │   ├── dense/                        # Deterministic benchmark matrices (generated via generate_dataset.py)
 │   └── validation/                   # Tracked 4x4 fixtures and scalar-Python reference C_250.csv
-├── docs/
-│   ├── experimental_protocol.md      # Pre-registered experimental protocol and campaign chronology
-│   ├── decisions/                    # DEC-01 local multi-worker instructor permission record
-│   └── provenance/                   # Reused A1/A3 snapshot SHA-256 and adapter provenance
 ├── src/                              # Dask 2D block engine, watchdog, telemetry, CLI, and adapters
 ├── scripts/                          # Dataset, verification, baseline runner, and offline analysis scripts
 ├── tests/                            # Automated unit and contract test suite (200 tests)
@@ -137,14 +133,14 @@ Assignment04_Abel/
     └── plots/                        # Publication figures included by Assignment04_Report.tex
 ```
 
-All `19` raw, metadata, script, derived CSV, and figure artifacts are cryptographically indexed in [`results/analysis/analysis_provenance.json`](results/analysis/analysis_provenance.json) and verified byte-for-byte via `python -B scripts/verify_provenance.py`.
+All `19` raw, metadata, script, derived CSV, and figure artifacts are cryptographically indexed in [`results/analysis/analysis_provenance.json`](results/analysis/analysis_provenance.json) (with baseline origin commits and frozen source SHA-256 checksums recorded in [`results/metadata/common_input_baselines_manifest.json`](results/metadata/common_input_baselines_manifest.json) and [`SPEC.md`](SPEC.md)) and verified byte-for-byte via `python -B scripts/verify_provenance.py`.
 
 ---
 
 ## 7. Generative AI Assistance Disclosure
 
 In compliance with the ULPGC Big Data course policy on Generative Artificial Intelligence, the author discloses the supervised use of three AI tools:
-1. **ChatGPT (OpenAI):** Planning, technical review, and workflow/prompt preparation ([`SPEC.md`](SPEC.md), [`docs/experimental_protocol.md`](docs/experimental_protocol.md)).
+1. **ChatGPT (OpenAI):** Planning, technical review, and workflow/prompt preparation ([`SPEC.md`](SPEC.md)).
 2. **Google Antigravity (Gemini):** Modular Python implementation ([`src/`](src/)), execution and verification scripts ([`scripts/`](scripts/)), unit and contract test suites ([`tests/`](tests/)), offline statistical analysis and figure generation ([`scripts/analyze_campaign.py`](scripts/analyze_campaign.py)), and English/LaTeX report and documentation preparation ([`report/Assignment04_Report.tex`](report/Assignment04_Report.tex), [`README.md`](README.md)).
 3. **Codex (OpenAI):** Repository review, technical auditing, and documentation refinement ([`README.md`](README.md), [`SPEC.md`](SPEC.md), [`report/Assignment04_Report.tex`](report/Assignment04_Report.tex)).
 
