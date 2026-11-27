@@ -43,7 +43,7 @@ from src.dask_matrix.cluster_manager import (
     ClusterTopology,
     validate_cluster_topology,
     validate_injected_cluster_manager,
-    verify_multiworker_permission,
+    validate_worker_count,
 )
 from src.dask_matrix.distributed_engine import (
     DaskExecutionResult,
@@ -269,7 +269,7 @@ class PilotRunner:
         print("================================================================================\n")
 
         # 1. Validate worker configuration
-        verify_multiworker_permission(PILOT_WORKER_COUNT)
+        validate_worker_count(PILOT_WORKER_COUNT)
 
         validate_injected_cluster_manager(self.cluster_manager, expected_worker_count=PILOT_WORKER_COUNT)
 
@@ -372,7 +372,7 @@ class PilotRunner:
                     status_to_record = early_abort_status
                     if early_abort_status == "NOT_RUN_AFTER_TIMEOUT":
                         if timed_out_n is not None and spec.n == timed_out_n:
-                            abort_desc = f"Repetition omitted following timeout in sample {timed_out_sample_id} (n={spec.n}) per protocol §10.1."
+                            abort_desc = f"Repetition omitted following timeout in sample {timed_out_sample_id} (n={spec.n}) per SPEC.md."
                         else:
                             abort_desc = f"Skipped: pilot halted and cluster closed following timeout in sample {timed_out_sample_id} (n={timed_out_n}); cluster restart not authorized."
                     else:
@@ -587,9 +587,9 @@ class PilotRunner:
                             else:
                                 print(f"[VALIDATION PASS] {spec.sample_id} verified against C_250.csv (|max_diff|={v_res.max_abs_diff:.2e})")
 
-                        # Invariant 3: Finitude and cross-repetition determinism for n=500 (partial control per protocol §9.3/§10.5)
+                        # Invariant 3: Finitude and cross-repetition determinism for n=500 (per SPEC.md)
                         elif spec.n == 500:
-                            print(f"[VALIDATION CONTROL] {spec.sample_id} finitude verified. Running cross-repetition determinism check (partial control per protocol §9.3).")
+                            print(f"[VALIDATION CONTROL] {spec.sample_id} finitude verified. Running cross-repetition determinism check.")
                             if not spec.is_warmup:
                                 if res.checksum is None:
                                     final_status = "FAILED"
@@ -677,13 +677,13 @@ class PilotRunner:
                     early_abort_reason = final_error
                 elif final_status == "TIMEOUT":
                     print(f"[{spec.sample_id}] Sample timed out (> {self.sample_timeout_s:.1f} s limit).")
-                    print(f"[{spec.sample_id}] Enforcing protocol §10.1: safely closing cluster and omitting remaining repetitions.")
+                    print(f"[{spec.sample_id}] Safely closing cluster and omitting remaining repetitions.")
                     timed_out_n = spec.n
                     timed_out_sample_id = spec.sample_id
                     early_abort_status = "NOT_RUN_AFTER_TIMEOUT"
                     early_abort_reason = (
                         f"Cluster safely closed following timeout in sample {spec.sample_id} (n={spec.n}). "
-                        f"Subsequent repetitions of n={spec.n} omitted per protocol §10.1; "
+                        f"Subsequent repetitions of n={spec.n} omitted per SPEC.md; "
                         f"cluster restart not authorized."
                     )
                     if watchdog is not None:

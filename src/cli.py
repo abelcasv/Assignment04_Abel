@@ -27,7 +27,7 @@ from src.dask_matrix.campaign_runner import (
     validate_campaign_plan,
 )
 from src.dask_matrix.cluster_manager import (
-    verify_multiworker_permission,
+    validate_worker_count,
 )
 from src.dask_matrix.partitioning import compute_grid_dimensions
 from src.dask_matrix.pilot_runner import PilotRunner, PILOT_PLAN
@@ -132,7 +132,7 @@ def validate_configuration(
         raise ValueError(f"Timeout must be finite and positive, got {timeout}.")
 
     # Validate positive integer worker count (p >= 1)
-    verify_multiworker_permission(p)
+    validate_worker_count(p)
 
     nb = compute_grid_dimensions(n, b)
     print(f"[CONFIG CHECK] Problem dimension: {n} x {n}")
@@ -161,7 +161,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.campaign:
         try:
-            verify_multiworker_permission(args.workers)
+            validate_worker_count(args.workers)
         except Exception as e:
             sys.stderr.write(f"[CAMPAIGN ERROR] {e}\n")
             return 1

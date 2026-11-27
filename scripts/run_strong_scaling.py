@@ -40,7 +40,7 @@ from src.dask_matrix.campaign_runner import (
 from src.dask_matrix.cluster_manager import (
     ClusterManager,
     validate_cluster_topology,
-    verify_multiworker_permission,
+    validate_worker_count,
 )
 from src.dask_matrix.distributed_engine import DistributedBlockMatmul
 from src.dask_matrix.input_verifier import (
@@ -153,7 +153,7 @@ def run_pilot_p1_p2() -> int:
     print("================================================================================")
     print("ASSIGNMENT 4 — CONTROLLED MULTI-WORKER PILOT (p=1 vs p=2, 1 PHYSICAL HOST)")
     print("================================================================================")
-    verify_multiworker_permission(2)
+    validate_worker_count(2)
 
     manifest = load_sha256_manifest(os.path.join(DATA_DIR, "SHA256SUMS.txt"))
     a250, b250 = _load_verified_pair(250, manifest)
@@ -430,7 +430,7 @@ def run_strong_scaling_campaign(worker_counts: Tuple[int, ...] = STRONG_SCALING_
     print(f"Sizes: {STRONG_SCALING_SIZES} | b={CAMPAIGN_BLOCK_SIZE} | p in {worker_counts} | 1 Physical Host")
     print("================================================================================")
     for p in worker_counts:
-        verify_multiworker_permission(p)
+        validate_worker_count(p)
 
     manifest_data: Dict[str, Any] = {
         "schema_version": "1.0",

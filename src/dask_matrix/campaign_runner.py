@@ -50,7 +50,7 @@ from src.dask_matrix.cluster_manager import (
     ClusterTopology,
     validate_cluster_topology,
     validate_injected_cluster_manager,
-    verify_multiworker_permission,
+    validate_worker_count,
 )
 from src.dask_matrix.distributed_engine import (
     DaskExecutionResult,
@@ -138,7 +138,7 @@ def build_campaign_plan(
     """
     Constructs the immutable execution plan for a Dask campaign configuration.
 
-    Per protocol §8:
+    Per SPEC.md:
     - 1 warm-up (is_warmup=True, rep=0) per configuration.
     - `repetitions` measured repetitions (is_warmup=False, rep=1..repetitions) per configuration.
     - If randomize=True, configuration order is shuffled with fixed seed 20261113.
@@ -213,7 +213,7 @@ def validate_campaign_plan(
     - Invalid timeouts or budgets.
     """
     # 1. Validate worker count via single authoritative parameter check
-    verify_multiworker_permission(expected_worker_count)
+    validate_worker_count(expected_worker_count)
 
     # 2. Check total sample count
     expected_total = len(expected_sizes) * (expected_repetitions + 1)
@@ -533,7 +533,7 @@ class CampaignRunner:
                     status_to_record = early_abort_status
                     if early_abort_status == "NOT_RUN_AFTER_TIMEOUT":
                         if timed_out_n is not None and spec.n == timed_out_n:
-                            abort_desc = f"Repetition omitted following timeout in sample {timed_out_sample_id} (n={spec.n}) per protocol §10.1."
+                            abort_desc = f"Repetition omitted following timeout in sample {timed_out_sample_id} (n={spec.n}) per SPEC.md."
                         else:
                             abort_desc = f"Skipped: campaign halted and cluster closed following timeout in sample {timed_out_sample_id} (n={timed_out_n}); cluster restart not authorized."
                     else:
@@ -846,13 +846,13 @@ class CampaignRunner:
                     early_abort_reason = final_error
                 elif final_status == "TIMEOUT":
                     print(f"[{spec.sample_id}] Sample timed out (> {self.sample_timeout_s:.1f} s limit).")
-                    print(f"[{spec.sample_id}] Enforcing protocol §10.1: safely closing cluster and omitting remaining repetitions.")
+                    print(f"[{spec.sample_id}] Safely closing cluster and omitting remaining repetitions.")
                     timed_out_n = spec.n
                     timed_out_sample_id = spec.sample_id
                     early_abort_status = "NOT_RUN_AFTER_TIMEOUT"
                     early_abort_reason = (
                         f"Cluster safely closed following timeout in sample {spec.sample_id} (n={spec.n}). "
-                        f"Subsequent repetitions of n={spec.n} omitted per protocol §10.1; "
+                        f"Subsequent repetitions of n={spec.n} omitted per SPEC.md; "
                         f"cluster restart not authorized."
                     )
                     # Safely stop watchdog and close cluster immediately to prevent dispatching work to a busy/degraded worker

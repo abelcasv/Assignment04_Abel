@@ -853,7 +853,7 @@ class TestPilotValidationRoutines(unittest.TestCase):
 class TestClusterManagerStartupAndCleanup(unittest.TestCase):
     """Verifies timeout propagation, partial startup teardown, and orphan process cleanup."""
 
-    @patch("src.dask_matrix.cluster_manager.verify_multiworker_permission")
+    @patch("src.dask_matrix.cluster_manager.validate_worker_count")
     @patch("distributed.LocalCluster")
     @patch("distributed.Client")
     def test_partial_startup_client_failure_cleans_cluster(self, mock_client_cls, mock_cluster_cls, mock_perm):
@@ -873,7 +873,7 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
         self.assertIsNone(cm.cluster)
         self.assertIsNone(cm.client)
 
-    @patch("src.dask_matrix.cluster_manager.verify_multiworker_permission")
+    @patch("src.dask_matrix.cluster_manager.validate_worker_count")
     @patch("distributed.LocalCluster")
     @patch("distributed.Client")
     def test_partial_startup_wait_for_workers_timeout_cleans_all(self, mock_client_cls, mock_cluster_cls, mock_perm):
@@ -940,7 +940,7 @@ class TestClusterManagerStartupAndCleanup(unittest.TestCase):
         self.assertTrue(procs_by_pid[99102].terminate.called)
         self.assertIsNone(cm.cluster)
 
-    @patch("src.dask_matrix.cluster_manager.verify_multiworker_permission")
+    @patch("src.dask_matrix.cluster_manager.validate_worker_count")
     @patch("distributed.LocalCluster")
     @patch("distributed.Client")
     def test_startup_timeout_actual_remaining_below_100ms(self, mock_client_cls, mock_cluster_cls, mock_perm):

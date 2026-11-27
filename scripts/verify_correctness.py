@@ -1,7 +1,7 @@
 """
 scripts/verify_correctness.py — Standalone Numerical Correctness Validation Suite
 
-Executes the small-matrix correctness checks mandated for Phase 5:
+Executes the small-matrix and reference correctness checks defined in SPEC.md:
 1. Analytical 4x4 known-answer multiplication (b=2).
 2. Non-divisible edge-block partitioning (n=4, b=3).
 3. Identity property fixture: A x I = A (n=4, b=2).
@@ -82,7 +82,7 @@ def run_correctness_checks() -> bool:
     all_passed = True
 
     print("=================================================================")
-    print("Assignment 4: Phase 5 Numerical Correctness Validation Suite")
+    print("Assignment 4: Numerical Correctness Validation Suite")
     print("Tolerances: atol = 1e-9, rtol = 1e-12")
     print("=================================================================\n")
 

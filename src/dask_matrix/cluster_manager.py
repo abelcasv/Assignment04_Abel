@@ -65,7 +65,7 @@ def _extract_worker_hierarchy_pids(workers_map: Any) -> Tuple[List[int], List[in
     return nanny_pids, worker_pids
 
 
-def verify_multiworker_permission(p: int) -> bool:
+def validate_worker_count(p: int) -> bool:
     """
     Validates that the requested worker count p is a positive integer (p >= 1).
 
@@ -264,7 +264,7 @@ class ClusterManager:
                 "ClusterManager is already started; call close() before calling start() again."
             )
 
-        verify_multiworker_permission(self.worker_count)
+        validate_worker_count(self.worker_count)
 
         if isinstance(timeout_s, bool) or not isinstance(timeout_s, numbers.Real):
             raise TypeError(

@@ -1,5 +1,5 @@
 """
-tests/test_permission_gate.py — Verification of Worker Count & Single-Host Topology Validation
+tests/test_worker_count_validation.py — Verification of Worker Count & Single-Host Topology Validation
 
 Ensures that:
 - Single worker (p=1) and valid multi-worker counts (p > 1) are accepted as positive integers.
@@ -19,30 +19,30 @@ from src.dask_matrix.cluster_manager import (
     ClusterTopology,
     validate_cluster_topology,
     validate_injected_cluster_manager,
-    verify_multiworker_permission,
+    validate_worker_count,
 )
 
 
-class TestPermissionGate(unittest.TestCase):
+class TestWorkerCountValidation(unittest.TestCase):
 
     def test_single_worker_permitted(self):
         """p=1 must be accepted as a valid positive integer worker count."""
-        self.assertTrue(verify_multiworker_permission(1))
+        self.assertTrue(validate_worker_count(1))
         # Support numpy integer scalar for p=1
-        self.assertTrue(verify_multiworker_permission(np.int64(1)))
+        self.assertTrue(validate_worker_count(np.int64(1)))
 
     def test_non_positive_values_rejected_with_value_error(self):
         """p <= 0 must raise ValueError."""
         non_positive_counts = [0, -1, -10]
         for p in non_positive_counts:
             with self.assertRaises(ValueError) as ctx:
-                verify_multiworker_permission(p)
+                validate_worker_count(p)
             self.assertIn("positive integer", str(ctx.exception))
 
         with self.assertRaises(ValueError):
-            verify_multiworker_permission(np.int64(0))
+            validate_worker_count(np.int64(0))
         with self.assertRaises(ValueError):
-            verify_multiworker_permission(np.int64(-1))
+            validate_worker_count(np.int64(-1))
 
     def test_invalid_types_rejected_with_type_error(self):
         """Non-integral types and booleans must raise TypeError."""
@@ -58,14 +58,14 @@ class TestPermissionGate(unittest.TestCase):
         ]
         for val in invalid_types:
             with self.assertRaises(TypeError) as ctx:
-                verify_multiworker_permission(val)  # type: ignore
+                validate_worker_count(val)  # type: ignore
             self.assertIn("must be an integer", str(ctx.exception))
 
     def test_multiworker_positive_integers_permitted(self):
         """Positive integer worker counts p > 1 for local strong scaling are permitted."""
         for p in [2, 4, 8, 10]:
-            self.assertTrue(verify_multiworker_permission(p))
-        self.assertTrue(verify_multiworker_permission(np.int64(2)))
+            self.assertTrue(validate_worker_count(p))
+        self.assertTrue(validate_worker_count(np.int64(2)))
 
 
 class TestClusterManagerValidation(unittest.TestCase):
@@ -201,7 +201,7 @@ class TestInjectedManagerAndTopologyValidation(unittest.TestCase):
 class TestClusterManagerStateAndTimeoutGuards(unittest.TestCase):
     """Verifies repeat-start rejection, close topology reset, and timeout_s/startup guards."""
 
-    @patch("src.dask_matrix.cluster_manager.verify_multiworker_permission")
+    @patch("src.dask_matrix.cluster_manager.validate_worker_count")
     @patch("distributed.LocalCluster")
     @patch("distributed.Client")
     def test_repeat_start_raises_and_close_resets_topology_for_restart(
@@ -244,7 +244,7 @@ class TestClusterManagerStateAndTimeoutGuards(unittest.TestCase):
             mock_close.assert_not_called()
             mock_lc.assert_not_called()
 
-    @patch("src.dask_matrix.cluster_manager.verify_multiworker_permission")
+    @patch("src.dask_matrix.cluster_manager.validate_worker_count")
     @patch("distributed.LocalCluster")
     @patch("distributed.Client")
     def test_small_timeout_startup_failure_uses_positive_close_floor_and_bad_workers_tears_down(

@@ -18,7 +18,7 @@ from src.dask_matrix.reduction import (
 )
 from src.dask_matrix.cluster_manager import (
     ClusterManager,
-    verify_multiworker_permission,
+    validate_worker_count,
 )
 from src.dask_matrix.distributed_engine import (
     DistributedBlockMatmul,
@@ -55,7 +55,7 @@ __all__ = [
     "compute_matrix_checksum",
     "build_binary_tree_reduction",
     "ClusterManager",
-    "verify_multiworker_permission",
+    "validate_worker_count",
     "DistributedBlockMatmul",
     "ResourceWatchdog",
     "ProcessMemorySample",
