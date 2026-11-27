@@ -1,5 +1,5 @@
 """
-tests/test_pilot_runner.py — Unit Tests for Phase 7 Pilot Orchestrator and Safeguards
+tests/test_pilot_runner.py — Unit Tests for Pilot Orchestrator and Safeguards
 
 Tests:
 1. Immutability and exact specification of PILOT_PLAN (6 samples, p=1, b=250, warmup flags).

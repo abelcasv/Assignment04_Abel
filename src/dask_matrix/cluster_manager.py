@@ -1,12 +1,11 @@
 """
-src.dask_matrix.cluster_manager — LocalCluster Lifecycle and Gate G1 Enforcement
+src.dask_matrix.cluster_manager — LocalCluster Lifecycle and Topology Validation
 
 Manages Dask Distributed LocalCluster and Client instances:
-- Enforces DEC-01 / Gate G1: local multi-worker execution (p > 1) is strictly BLOCKED
-  unless explicit written instructor permission evidence is present in docs/decisions/.
+- Validates positive integral worker counts (p >= 1) and observed cluster topology.
 - Enforces strict single-threading per worker (OMP_NUM_THREADS=1, MKL_NUM_THREADS=1, etc.).
 - Measures cluster startup time separately from multiplication time.
-- Inspects and records the nominal 1 + 2p process hierarchy (Driver/Client, Nannies, Workers).
+- Inspects and records the process hierarchy (Driver/Client/Scheduler, Nannies, Workers).
 """
 
 from dataclasses import dataclass, field
@@ -18,15 +17,6 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 import psutil
 
-
-DECISIONS_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "docs", "decisions")
-)
-PERMISSION_FILE_CANDIDATES = [
-    "DEC-01-instructor-permission.md",
-    "instructor_permission.md",
-    "DEC-01_permission.md",
-]
 
 THREADING_ENV_VARS = {
     "OMP_NUM_THREADS": "1",
@@ -77,23 +67,17 @@ def _extract_worker_hierarchy_pids(workers_map: Any) -> Tuple[List[int], List[in
 
 def verify_multiworker_permission(p: int) -> bool:
     """
-    Verifies that local multi-worker execution (p > 1) is permitted by checking
-    for written instructor permission evidence in docs/decisions/.
-
-    Under DEC-01, single-worker execution (p=1) is the only currently authorized
-    configuration. Configurations with p < 1 are invalid, and p > 1 requires explicit
-    written instructor permission.
+    Validates that the requested worker count p is a positive integer (p >= 1).
 
     Args:
         p: Number of workers requested. Must be a positive integer (p >= 1).
 
     Returns:
-        True if p == 1 or valid written instructor permission evidence exists.
+        True if p is a valid positive integer (p >= 1).
 
     Raises:
         TypeError: If p is a boolean or not an integral number.
         ValueError: If p < 1.
-        PermissionError: If p > 1 and no written permission file is present.
     """
     if isinstance(p, bool) or not isinstance(p, numbers.Integral):
         raise TypeError(f"Worker count p must be an integer, got {type(p).__name__}.")
@@ -101,47 +85,19 @@ def verify_multiworker_permission(p: int) -> bool:
     if p < 1:
         raise ValueError(f"Worker count p must be a positive integer (p >= 1), got {p}.")
 
-    if p == 1:
-        return True
-
-    if not os.path.isdir(DECISIONS_DIR):
-        raise PermissionError(
-            f"[DEC-01 / Gate G1 BLOCKED] Execution with p={p} workers requires written "
-            f"instructor permission, but directory '{DECISIONS_DIR}' does not exist. "
-            f"Single-worker (p=1) is the only permitted configuration. Falling back "
-            f"silently to p=1 is strictly prohibited. Do NOT silently substitute p=1."
-        )
-
-    found = False
-    for candidate in PERMISSION_FILE_CANDIDATES:
-        path = os.path.join(DECISIONS_DIR, candidate)
-        if os.path.isfile(path) and os.path.getsize(path) > 0:
-            found = True
-            break
-
-    if not found:
-        raise PermissionError(
-            f"[DEC-01 / Gate G1 BLOCKED] Local multi-worker execution with p={p} workers "
-            f"is strictly BLOCKED because no written instructor permission was found in "
-            f"'{DECISIONS_DIR}'. Candidates checked: {PERMISSION_FILE_CANDIDATES}. "
-            f"Under the official Assignment 4 specification ('Local execution limitation', "
-            f"PDF page 7), local multi-worker execution requires explicit instructor permission. "
-            f"Do NOT silently substitute p=1."
-        )
-
     return True
 
 
 def validate_injected_cluster_manager(cm: Any, expected_worker_count: int = 1) -> None:
     """
-    Validates that an injected cluster manager satisfies the strict single-worker contract.
+    Validates that an injected cluster manager satisfies the expected worker-count contract.
 
     Enforces fail-closed validation:
     - If cm is None, validation passes (the runner instantiates its own ClusterManager).
     - cm must expose a 'worker_count' attribute (or equivalent configured attribute on duck-typed test doubles).
     - worker_count must be an integral type (numbers.Integral) and not a boolean.
     - worker_count must be positive (>= 1).
-    - worker_count must exactly equal expected_worker_count (currently 1 under DEC-01).
+    - worker_count must exactly equal expected_worker_count.
 
     Args:
         cm: Injected cluster manager instance or test double.
@@ -289,7 +245,7 @@ class ClusterManager:
 
     def start(self, timeout_s: float = 60.0) -> ClusterTopology:
         """
-        Starts the LocalCluster and Client, enforcing thread limits and DEC-01.
+        Starts the LocalCluster and Client, enforcing thread limits and topology validation.
 
         Args:
             timeout_s: Maximum duration in seconds to wait for workers to register (default: 60.0).
@@ -299,7 +255,6 @@ class ClusterManager:
 
         Raises:
             RuntimeError: If the cluster manager is already started.
-            PermissionError: If worker_count > 1 and DEC-01 permission is missing.
             TypeError: If timeout_s is boolean or non-real.
             TimeoutError: If timeout_s is non-positive or non-finite, or startup times out.
             ImportError: If dask.distributed is not installed.

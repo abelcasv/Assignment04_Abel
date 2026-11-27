@@ -1,8 +1,7 @@
 """
 src.dask_matrix.results_logger — Append-Only Raw Measurements Logger
 
-Implements the strict raw data recording contract defined in SPEC.md and
-docs/experimental_protocol.md (Section 11.1).
+Implements the strict raw data recording contract defined in SPEC.md:
 - Schema: 44 fields capturing identification, stack, dimensions, parallelism,
   repetition, timings, telemetry, memory, and failure statuses.
 - Append-only integrity: writes to results/raw/raw_measurements.csv without overwriting.

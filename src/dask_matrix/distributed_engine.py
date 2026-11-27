@@ -1,9 +1,7 @@
 """
 src.dask_matrix.distributed_engine — Dask Distributed 2D Block Matrix Multiplication
 
-Implements the end-to-end distributed execution contract defined in:
-- SPEC.md Sections 5.1, 5.2, 5.3, 7.1
-- docs/experimental_protocol.md Section 6.2 (Primary Dask Timing Boundary)
+Implements the end-to-end distributed execution contract defined in SPEC.md:
 
 Timing contract (t0 to t1):
 - t0: Immediately before partitioning and scattering blocks for the current repetition.

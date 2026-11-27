@@ -5,9 +5,6 @@
 # External read-only baseline repositories
 /external_repos/
 
-# Local course reference PDF (proprietary course materials)
-/docs/reference/BD_Individual_Assignments_2026_2027.pdf
-
 # Private student prompts, internal agent instructions, and task sequences
 /CLAUDE.md
 PROMPTS.md
@@ -17,7 +14,6 @@ PROMPTS.md
 # Obsolete / superseded archival drafts
 CLAUDE_UPDATED.md
 SPEC_UPDATED.md
-docs/Assignment04_Experimental_Protocol_Final.md
 
 # Build artifacts, binaries, and object files
 build/bin/

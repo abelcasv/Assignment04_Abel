@@ -1,12 +1,12 @@
 """
-tests.test_campaign_runner — Unit Tests and Mocked Verification for Phase 8 Campaign Orchestrator
+tests.test_campaign_runner — Unit Tests and Mocked Verification for Campaign Orchestrator
 
 Validates all 20 required specifications for CampaignRunner and build_campaign_plan:
 1. Correct generation of 36 planned samples.
 2. Exactly 6 warm-ups and 30 measured repetitions.
 3. Correct size, block, and worker configurations.
 4. Unique sample identities.
-5. Rejection of p > 1 (DEC-01 / Gate G1).
+5. Rejection of invalid or mismatched worker counts in validate_campaign_plan.
 6. Rejection of malformed campaign plans.
 7. Separation between --pilot and --campaign in CLI.
 8. Correct handling of successful mocked samples.
@@ -106,15 +106,18 @@ class TestCampaignPlanSpecification(unittest.TestCase):
         orders = [s.execution_order for s in CAMPAIGN_PLAN]
         self.assertEqual(orders, list(range(1, 37)))
 
-    def test_05_rejection_of_multiworker_without_permission(self):
-        """Req 5: Rejection of p > 1 enforcing DEC-01 when permission evidence is absent."""
-        with patch("src.dask_matrix.cluster_manager.DECISIONS_DIR", "__nonexistent_decisions_dir__"):
-            with self.assertRaises(PermissionError) as ctx:
-                validate_campaign_plan(CAMPAIGN_PLAN, expected_worker_count=2)
-            self.assertIn("DEC-01", str(ctx.exception))
+    def test_05_rejection_of_invalid_or_mismatched_worker_count(self):
+        """Req 5: Rejection of non-positive or mismatched expected_worker_count."""
+        with self.assertRaises(ValueError) as ctx_zero:
+            validate_campaign_plan(CAMPAIGN_PLAN, expected_worker_count=0)
+        self.assertIn("positive integer", str(ctx_zero.exception))
+
+        with self.assertRaises(ValueError) as ctx_mismatch:
+            validate_campaign_plan(CAMPAIGN_PLAN, expected_worker_count=2)
+        self.assertIn("expected 2", str(ctx_mismatch.exception))
 
     def test_05b_multiworker_strong_scaling_plan_validation(self):
-        """With DEC-01 permission present, p=2 strong-scaling plan validates cleanly."""
+        """Multi-worker p=2 strong-scaling plan validates cleanly."""
         plan_p2 = build_campaign_plan(sizes=(1000, 1500, 2000), worker_count=2, repetitions=5)
         self.assertEqual(len(plan_p2), 18)
         self.assertTrue(all(s.worker_count == 2 for s in plan_p2))

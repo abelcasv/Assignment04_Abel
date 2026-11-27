@@ -1,9 +1,7 @@
 """
-src.dask_matrix.pilot_runner — Phase 7 Bounded Pilot Execution Orchestrator
+src.dask_matrix.pilot_runner — Bounded Pilot Execution Orchestrator
 
-Implements the formal and binding Pilot experimental specification defined in:
-- docs/experimental_protocol.md Section 10.5
-- SPEC.md
+Implements the bounded Pilot experimental specification defined in SPEC.md.
 
 Fixed, immutable execution plan:
 1. pilot_250_w0: n=250, b=250, p=1, rep=0, warmup=True  (Latencia base, 1 mult, 0 red)
@@ -17,7 +15,7 @@ Invariable parameters:
 - Method: dask_block_2d exclusively
 - Matrix sizes: n in {250, 500}
 - Block size: b = 250
-- Worker count: p = 1 exclusively (DEC-01 / Gate G1)
+- Worker count: p = 1 exclusively
 - Threads per worker: 1
 - OpenBLAS num_threads: 1
 - Repetitions: 1 warmup + 2 measured repetitions per size (6 executions total)
@@ -182,7 +180,7 @@ def load_sha256_checksums(
 
 class PilotRunner:
     """
-    Dedicated orchestrator executing exclusively the bounded Phase 7 Pilot matrix.
+    Dedicated orchestrator executing exclusively the bounded Pilot matrix.
     Enforces the 15-minute global budget, 120s sample timeout, and resource watchdog limits.
     """
 
@@ -256,7 +254,7 @@ class PilotRunner:
         run_id = f"pilot_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}"
 
         print("================================================================================")
-        print("ASSIGNMENT 4 — PHASE 7 BOUNDED PILOT EXECUTION")
+        print("ASSIGNMENT 4 — BOUNDED PILOT EXECUTION")
         print("================================================================================")
         print(f"Run ID:                 {run_id}")
         print(f"Session Start (UTC):    {session_start_utc}")
@@ -270,7 +268,7 @@ class PilotRunner:
         print(f"Sample Plan:            {len(PILOT_PLAN)} runs ({[s.sample_id for s in PILOT_PLAN]})")
         print("================================================================================\n")
 
-        # 1. Enforce Gate G1
+        # 1. Validate worker configuration
         verify_multiworker_permission(PILOT_WORKER_COUNT)
 
         validate_injected_cluster_manager(self.cluster_manager, expected_worker_count=PILOT_WORKER_COUNT)
@@ -819,7 +817,7 @@ class PilotRunner:
             try:
                 sidecar_path = generate_campaign_sidecar(
                     run_id=run_id,
-                    campaign_name="Phase 7 Bounded Pilot Campaign",
+                    campaign_name="Bounded Pilot Campaign",
                     worker_count=PILOT_WORKER_COUNT,
                     block_size=PILOT_BLOCK_SIZE,
                     n_values=[250, 500],

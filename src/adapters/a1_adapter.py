@@ -76,7 +76,7 @@ class A1SequentialAdapter:
                 time_kernel_s=None,
                 stdout="",
                 stderr="",
-                error_reason=f"Binary not compiled at {self.binary_path}. Compilation belongs to Phase 5.",
+                error_reason=f"Binary not compiled at {self.binary_path}. Build the C executable first.",
             )
 
         if not os.path.isdir(self.runtime_dir):

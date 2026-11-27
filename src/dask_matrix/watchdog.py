@@ -2,7 +2,7 @@
 src.dask_matrix.watchdog — Process-Tree Resource Watchdog
 
 Strictly implements the operational safety thresholds and the 5-step safe stop
-procedure defined in docs/experimental_protocol.md Section 10.3:
+procedure defined in SPEC.md:
 - Tracks individual unique PIDs across Driver, Scheduler, Nannies, and Workers.
 - Polls at 250 ms sampling interval on an isolated background thread.
 - Enforces the provisional 2.5 GiB sampled aggregate RSS ceiling.

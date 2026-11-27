@@ -1,32 +1,30 @@
 """
-src.dask_matrix.campaign_runner — Phase 8 Full Single-Worker Campaign Orchestrator
+src.dask_matrix.campaign_runner — Single-Worker and Strong-Scaling Campaign Orchestrator
 
-Implements the formal and binding single-worker (p=1) experimental campaign specified in:
-- docs/experimental_protocol.md (Section 3, Section 8, Section 10, Section 11)
-- SPEC.md
+Implements the experimental campaign execution contract specified in SPEC.md.
 
 Campaign Matrix:
 - Method: dask_block_2d exclusively
 - Reduction: binary_tree_reduction
 - Matrix sizes: n in {250, 500, 750, 1000, 1500, 2000} (6 sizes)
 - Block size: b = 250
-- Worker count: p = 1 exclusively (enforcing DEC-01 / Gate G1)
+- Worker count: p = 1 default (configurable for local strong scaling p in {1, 2, 4, 8, 10})
 - Threads per worker: 1
 - OpenBLAS num_threads: 1
 - Repetitions: exactly 1 warm-up (is_warmup=True, rep=0) + 5 measured repetitions (rep=1..5)
 - Total planned samples: 36 (6 warm-up + 30 measured)
-- Execution ordering: reproducible randomized order of configurations with seed 20261113 (protocol §8)
+- Execution ordering: reproducible randomized order of configurations with seed 20261113
 - Resource budgets:
-  * Sample timeout: 120.0 s (protocol §10.1)
-  * Nominal startup timeout: 60.0 s (protocol §10.5.2, SPEC DEC-06)
-  * Cleanup budget: 5.0 s (protocol §10.5.2)
-  * Global planning ceiling: 36,000.0 s (10 hours, protocol §10.2)
-  * Aggregate RSS ceiling: 2560.0 MiB (2.5 GiB, protocol §10.3)
-  * Host available RAM floor: 1024.0 MiB (1.0 GiB, protocol §10.3)
-  * Watchdog sampling interval: 250 ms (protocol §10.3)
-  * Dask worker memory_limit: None (protocol §7.5)
+  * Sample timeout: 120.0 s
+  * Nominal startup timeout: 60.0 s
+  * Cleanup budget: 5.0 s
+  * Global planning ceiling: 36,000.0 s (10 hours)
+  * Aggregate RSS ceiling: 2560.0 MiB (2.5 GiB)
+  * Host available RAM floor: 1024.0 MiB (1.0 GiB)
+  * Watchdog sampling interval: 250 ms
+  * Dask worker memory_limit: None
 
-Reuses existing validated Phase 7 infrastructure:
+Reuses core Dask infrastructure:
 - ClusterManager
 - DistributedBlockMatmul
 - ResourceWatchdog
@@ -94,11 +92,11 @@ DEFAULT_DENSE_DIR = os.path.join(DEFAULT_DATA_DIR, "dense")
 DEFAULT_VAL_DIR = os.path.join(DEFAULT_DATA_DIR, "validation")
 DEFAULT_SUMS_FILE = os.path.join(DEFAULT_DATA_DIR, "SHA256SUMS.txt")
 
-# Normative Campaign Constants (Protocol §3, §8, §10)
-CAMPAIGN_GLOBAL_BUDGET_S = 36000.0     # 10 hours campaign planning envelope (protocol §10.2)
-CAMPAIGN_SAMPLE_TIMEOUT_S = 120.0      # 120 seconds per end-to-end sample (protocol §10.1)
-CAMPAIGN_STARTUP_TIMEOUT_S = 60.0     # 60.0s nominal cluster startup (protocol §10.5.2, SPEC DEC-06)
-CAMPAIGN_CLEANUP_TIMEOUT_S = 5.0      # 5.0s shared cleanup budget (protocol §10.5.2)
+# Normative Campaign Constants (SPEC.md)
+CAMPAIGN_GLOBAL_BUDGET_S = 36000.0     # 10 hours campaign planning envelope
+CAMPAIGN_SAMPLE_TIMEOUT_S = 120.0      # 120 seconds per end-to-end sample
+CAMPAIGN_STARTUP_TIMEOUT_S = 60.0     # 60.0s nominal cluster startup
+CAMPAIGN_CLEANUP_TIMEOUT_S = 5.0      # 5.0s shared cleanup budget
 
 CAMPAIGN_METHOD = "dask_block_2d"
 CAMPAIGN_FRAMEWORK = "dask_distributed"
@@ -206,7 +204,7 @@ def validate_campaign_plan(
     Statically validates the campaign plan prior to cluster initialization.
 
     Rejects:
-    - Multi-worker execution (p > 1).
+    - Invalid worker counts (p <= 0 or non-integer).
     - Duplicate sample IDs.
     - Missing or unexpected matrix sizes.
     - Incorrect block size or repetition counts.
@@ -214,7 +212,7 @@ def validate_campaign_plan(
     - Non-monotonic or invalid execution orders.
     - Invalid timeouts or budgets.
     """
-    # 1. Enforce DEC-01 / Gate G1 via single authoritative permission check
+    # 1. Validate worker count via single authoritative parameter check
     verify_multiworker_permission(expected_worker_count)
 
     # 2. Check total sample count
@@ -291,8 +289,8 @@ def load_sha256_checksums(
 
 class CampaignRunner:
     """
-    Dedicated orchestrator executing the full Assignment 4 single-worker (p=1) campaign.
-    Reuses existing Phase 7 lifecycle, watchdog, measurement, validation, and logging mechanics.
+    Dedicated orchestrator executing the Assignment 4 Dask experimental campaign.
+    Reuses existing cluster lifecycle, watchdog, measurement, validation, and logging mechanics.
     """
 
     def __init__(
@@ -332,7 +330,7 @@ class CampaignRunner:
         self.block_size = block_size
         self.repetitions = repetitions
         self.campaign_name = campaign_name or (
-            "Phase 8 Full Single-Worker Campaign"
+            "Full Single-Worker Campaign"
             if worker_count == 1
             else f"Strong Scaling Local Multi-Worker Campaign (p={worker_count})"
         )
@@ -405,7 +403,7 @@ class CampaignRunner:
         run_id = f"campaign_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}"
 
         print("================================================================================")
-        print("ASSIGNMENT 4 — PHASE 8 FULL SINGLE-WORKER CAMPAIGN EXECUTION")
+        print("ASSIGNMENT 4 — DASK EXPERIMENTAL CAMPAIGN EXECUTION")
         print("================================================================================")
         print(f"Run ID:                 {run_id}")
         print(f"Session Start (UTC):    {session_start_utc}")
@@ -419,7 +417,7 @@ class CampaignRunner:
         print(f"Total Planned Samples:  {len(self.plan)}")
         print("================================================================================\n")
 
-        # 1. Statically validate the campaign plan and enforce Gate G1
+        # 1. Statically validate the campaign plan and worker configuration
         validate_campaign_plan(
             plan=self.plan,
             expected_sizes=self.sizes,

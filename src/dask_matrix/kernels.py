@@ -62,8 +62,7 @@ def compute_matrix_checksum(matrix: np.ndarray) -> float:
     """
     Computes the total sum of all elements in the full dense matrix.
 
-    This function represents the output-consumption operation mandated by
-    official PDF requirement COM-06 and docs/experimental_protocol.md Section 6.2.
+    This function represents the output-consumption operation defined in SPEC.md.
     It forces the CPU and Python memory manager to access every floating-point
     value, ensuring complete materialization before the end-to-end timer stops.
 

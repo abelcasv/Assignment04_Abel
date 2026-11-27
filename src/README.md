@@ -1,13 +1,13 @@
 # Assignment 4 Implementation Architecture (`src/`)
 
-**Assignment 4:** Distributed Matrix Multiplication<br>
+**Assignment 4:** Distributed Matrix Multiplication
 **Course:** BIG DATA · Grado en Ciencia e Ingeniería de Datos · ULPGC (2026–2027)
 
 ---
 
 ## 1. Architectural Overview
 
-This package implements the distributed matrix multiplication pipeline approved in ADR-001, `SPEC.md`, and `docs/experimental_protocol.md`. It uses **Dask Distributed** with a **2D block decomposition** and **binary-tree reduction**.
+This package implements the distributed matrix multiplication pipeline specified in [`SPEC.md`](../SPEC.md). It uses **Dask Distributed** with a **2D block decomposition** and **binary-tree reduction**.
 
 ```text
 src/
@@ -19,9 +19,9 @@ src/
 │   ├── kernels.py                # Elementary block GEMM and addition tasks
 │   ├── reduction.py              # Binary-tree reduction graph builder
 │   ├── distributed_engine.py     # End-to-end distributed multiplication orchestrator
-│   ├── cluster_manager.py        # LocalCluster lifecycle, Gate G1 validation, thread caps
-│   ├── pilot_runner.py           # Phase 7 bounded pilot campaign orchestrator
-│   ├── campaign_runner.py        # Phase 8 full 36-sample campaign orchestrator
+│   ├── cluster_manager.py        # LocalCluster lifecycle, topology validation, thread caps
+│   ├── pilot_runner.py           # Bounded single-worker pilot orchestrator
+│   ├── campaign_runner.py        # Multi-repetition campaign orchestrator
 │   ├── watchdog.py               # Process-tree resource monitor and 5-step safe stop
 │   ├── input_verifier.py         # SHA-256 dataset verification and fail-closed loader
 │   ├── validation.py             # Numerical correctness checking against tolerances
@@ -38,20 +38,20 @@ src/
 
 ## 2. Mathematical Formulation & 2D Block Reduction
 
-For two dense matrices $A, B \in \mathbb{R}^{n \times n}$ in IEEE 754 binary64 (`float64`), partitioned into $N_b \times N_b$ blocks using block size $b$ ($N_b = \lceil n/b \rceil$):
+For two dense matrices $A, B \in \mathbb{R}^{n \times n}$ in IEEE 754 `binary64` (`float64`), partitioned into $N_b \times N_b$ blocks using block size $b$ ($N_b = \lceil n/b \rceil$):
 
 $$C_{i, j} = \sum_{k=0}^{N_b-1} A_{i, k} \times B_{k, j}$$
 
-1. **Multiplication Phase:**
+1. **Multiplication Stage:**
    For each block coordinate $(i, j, k) \in \{0, \dots, N_b-1\}^3$, Dask schedules an independent task:
    $$P_{i, j, k} = \text{block\_multiply}(A_{i, k}, B_{k, j}) = A_{i, k} \times B_{k, j}$$
    executed via `numpy.matmul` on worker processes with internal BLAS/OpenMP threading restricted to 1 (`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `NUMEXPR_NUM_THREADS=1`).
    Total multiplication tasks: $N_b^3$.
 
-2. **Binary-Tree Reduction Phase:**
+2. **Binary-Tree Reduction Stage:**
    For each output block $(i, j)$, the $N_b$ partial products $\{P_{i, j, 0}, \dots, P_{i, j, N_b-1}\}$ are accumulated via a pairwise binary tree:
    - Round 0 pairs $(P_0, P_1), (P_2, P_3), \dots$ and submits `block_add` tasks.
-   - Any odd un-paired block carries forward untouched to the subsequent round.
+   - Any odd unpaired block carries forward untouched to the subsequent round.
    - Reduction continues until a single accumulated future remains.
    - Total depth: $\lceil \log_2 N_b \rceil$ stages.
    - Additions per output block: exactly $N_b - 1$ tasks.
@@ -62,10 +62,10 @@ $$C_{i, j} = \sum_{k=0}^{N_b-1} A_{i, k} \times B_{k, j}$$
 
 ## 3. Edge-Block Policy
 
-When matrix dimension $n$ is not divisible by block size $b$ (e.g., during irregular edge validation $n=4, b=3$ or if non-standard blocks are evaluated):
+When matrix dimension $n$ is not divisible by block size $b$ (e.g., during irregular edge validation $n=4, b=3$):
 - **Exact Truncated Dimensions:** The final block in each row/column uses exact dimensions:
   $$\text{block\_rows} = \min(b, n - i \cdot b), \quad \text{block\_cols} = \min(b, n - j \cdot b)$$
-- **Zero-Padding Forbidden:** Zero-padding is strictly prohibited by `SPEC.md` Section 5.1 and `docs/experimental_protocol.md` Section 5.3.
+- **Zero-Padding Forbidden:** Zero-padding is strictly prohibited by [`SPEC.md`](../SPEC.md).
 - **Inner Dimension Invariant:** For every multiplication $A_{i, k} \times B_{k, j}$, the column count of $A_{i, k}$ matches the row count of $B_{k, j}$ identically ($\min(b, n - k \cdot b)$).
 - **C-Order Memory Contiguity:** Every extracted block and assembled matrix is forced to contiguous C-order layout (`np.ascontiguousarray(..., dtype=np.float64)`).
 
@@ -73,7 +73,7 @@ When matrix dimension $n$ is not divisible by block size $b$ (e.g., during irreg
 
 ## 4. Primary Timing Boundary Contract
 
-The Dask multiplication timer ($T_{\text{Dask\_e2e}}$) measures wall-clock time via `time.perf_counter()` strictly adhering to `docs/experimental_protocol.md` Section 6.2:
+The Dask multiplication timer ($T_{\text{Dask\_E2E}}$) measures wall-clock time via `time.perf_counter()` adhering to [`SPEC.md`](../SPEC.md):
 
 ```text
 [Excluded from Timer]
@@ -91,7 +91,7 @@ The Dask multiplication timer ($T_{\text{Dask\_e2e}}$) measures wall-clock time 
 10. Checksum consumption: checksum = float(np.sum(C)).
 [STOP TIMER t1]
 
-T_Dask_e2e = t1 - t0
+T_Dask_E2E = t1 - t0
 
 [Excluded from Timer]
 11. Element-by-element numerical correctness validation vs reference.
@@ -100,19 +100,16 @@ T_Dask_e2e = t1 - t0
 
 ---
 
-## 5. Gate G1 / DEC-01 Permission Enforcement
+## 5. Worker Count & Single-Host Topology Validation
 
-In strict compliance with the official Assignment 4 specification (*"Local execution limitation"*, PDF page 7) and `SPEC.md` (DEC-01):
-- Single-worker execution ($p=1$) is always permitted.
-- Local multi-worker execution ($p \in \{2, 4, 8, 10\}$) requires written instructor authorization stored in `docs/decisions/` (recorded in `docs/decisions/DEC-01-instructor-permission.md` on 2026-11-23; previously **BLOCKED** during Phases 1–10).
-- `src/dask_matrix/cluster_manager.py` verifies this condition fail-closed before launching any cluster. If $p > 1$ and the authorization file is absent or empty, it raises `PermissionError` immediately.
-- **Zero Silent Fallback:** The system will never silently fall back from a requested $p > 1$ count to $p = 1$, and all local runs strictly report `physical_machine_count = 1`.
+- [`src/dask_matrix/cluster_manager.py`](dask_matrix/cluster_manager.py) validates that requested worker counts $p$ are positive integers ($p \ge 1$), enforcing single-threaded worker processes (`threads_per_worker = 1` and single-thread BLAS environment variables).
+- After cluster startup, `validate_cluster_topology` verifies fail-closed that `worker_count_observed` matches `worker_count_requested` identically, preventing silent fallback to a different worker count, and all local runs record `physical_machine_count = 1`.
 
 ---
 
 ## 6. Resource Watchdog & 5-Step Safe Stop Procedure
 
-`src/dask_matrix/watchdog.py` enforces operational host safety during runs:
+[`src/dask_matrix/watchdog.py`](dask_matrix/watchdog.py) enforces operational host safety during runs:
 - **Sampling Interval:** 250 ms on an isolated daemon thread.
 - **Tracked Processes:** Discovers and monitors unique PIDs across Driver, Scheduler, Nannies, and Workers using `psutil`.
 - **Ceilings:**
@@ -129,7 +126,7 @@ In strict compliance with the official Assignment 4 specification (*"Local execu
 
 ## 7. Raw Results Logger Schema
 
-`src/dask_matrix/results_logger.py` records every observation to `results/raw/raw_measurements.csv` conforming to the 44-column schema defined in `docs/experimental_protocol.md` Section 11.1:
+[`src/dask_matrix/results_logger.py`](dask_matrix/results_logger.py) records every observation to [`results/raw/raw_measurements.csv`](../results/raw/raw_measurements.csv) conforming to the 44-column schema defined in [`SPEC.md`](../SPEC.md):
 - Append-only integrity with thread-safe file locking.
 - Nullable fields are recorded as empty strings (`""`), never fabricated zeros.
 - Status values: `COMPLETED`, `TIMEOUT`, `OUT_OF_MEMORY`, `FAILED`, `ABORTED_WATCHDOG`, `ABORTED_BUDGET`, `NOT_RUN_AFTER_OOM`, `NOT_RUN_AFTER_TIMEOUT`.
@@ -139,16 +136,12 @@ In strict compliance with the official Assignment 4 specification (*"Local execu
 ## 8. CLI Usage
 
 Static configuration verification:
-```bash
-python -m src.cli --n 1000 --block-size 250 --workers 1 --check-config
+```powershell
+python -B -m src.cli --n 1000 --block-size 250 --workers 1 --check-config
+python -B -m src.cli --n 1000 --block-size 250 --workers 2 --check-config
 ```
 
 Offline $4 \times 4$ and $n=250$ distributed-block fixture verification:
-```bash
-python -m src.cli --validate-fixtures
-```
-
-Testing DEC-01 permission verification for multi-worker execution (`p > 1` succeeds with `docs/decisions/DEC-01-instructor-permission.md` present; raises `PermissionError` if absent):
-```bash
-python -m src.cli --n 1000 --block-size 250 --workers 2 --check-config
+```powershell
+python -B -m src.cli --validate-fixtures
 ```

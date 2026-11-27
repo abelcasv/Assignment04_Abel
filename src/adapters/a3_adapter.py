@@ -87,7 +87,7 @@ class A3OpenMPAdapter:
                 time_kernel_s=None,
                 stdout="",
                 stderr="",
-                error_reason=f"Binary not compiled at {self.binary_path}. Compilation belongs to Phase 5.",
+                error_reason=f"Binary not compiled at {self.binary_path}. Build the OpenMP executable first.",
             )
 
         if not os.path.isdir(self.runtime_dir):

@@ -1,8 +1,7 @@
 """
 src.dask_matrix.sidecar — Environment and Campaign Sidecar Metadata Capture
 
-Generates JSON sidecar metadata for experimental runs adhering to SPEC.md Section 2.2
-and docs/experimental_protocol.md Section 11.2:
+Generates JSON sidecar metadata for experimental runs adhering to SPEC.md:
 - Host hardware: CPU model, physical/logical cores, RAM, OS version.
 - Software stack: Python, NumPy, Dask, Distributed, GCC, BLAS thread limits.
 - Git provenance: A4 commit SHA, A1/A3 baseline snapshot hashes, input SHA-256 hashes.

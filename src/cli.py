@@ -4,8 +4,8 @@ src.cli — Command-Line Interface for Assignment 4 Execution and Verification
 Provides the unified execution entry point for distributed matrix multiplication,
 correctness checks, and benchmark campaigns:
 - Validates parameters (n, b, p, repetitions, timeouts, memory ceilings).
-- Enforces DEC-01 (Gate G1): rejects p > 1 immediately if permission evidence is absent.
-- Provides a --check-config / --dry-run flag for static validation without launching clusters.
+- Enforces positive integral worker counts (p >= 1).
+- Provides a --check-config flag for static validation without launching clusters.
 - Integrates ResourceWatchdog, DistributedBlockMatmul, and RawResultsLogger.
 """
 
@@ -55,7 +55,7 @@ def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "-p",
         type=int,
         default=1,
-        help="Number of worker processes p (default: 1). Must be a positive integer (p >= 1); p > 1 requires written authorization evidence in docs/decisions/ under DEC-01.",
+        help="Number of worker processes p (default: 1). Must be a positive integer (p >= 1).",
     )
     parser.add_argument(
         "--repetitions",
@@ -83,12 +83,12 @@ def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--pilot",
         action="store_true",
-        help="Execute the bounded Phase 7 Pilot experiment (fixed immutable matrix: n in {250, 500}, b=250, p=1, 6 runs).",
+        help="Execute the bounded single-worker pilot experiment (fixed matrix: n in {250, 500}, b=250, p=1, 6 runs).",
     )
     parser.add_argument(
         "--campaign",
         action="store_true",
-        help="Execute the full Phase 8 single-worker campaign (n in {250, 500, 750, 1000, 1500, 2000}, b=250, p=1, 36 runs).",
+        help="Execute the full single-worker campaign (n in {250, 500, 750, 1000, 1500, 2000}, b=250, p=1, 36 runs).",
     )
     return parser.parse_args(argv)
 
@@ -101,7 +101,7 @@ def validate_configuration(
     timeout: float = 120.0,
 ) -> bool:
     """
-    Validates input parameters against protocol constraints and Gate G1.
+    Validates input parameters against specification constraints.
 
     Returns:
         True if configuration is valid.
@@ -109,7 +109,6 @@ def validate_configuration(
     Raises:
         TypeError: If n, b, p, repetitions are booleans/non-integral, or timeout is non-real.
         ValueError: If n <= 0, b <= 0, p < 1, repetitions < 1, or timeout <= 0 / non-finite.
-        PermissionError: If p > 1 and DEC-01 permission is missing.
     """
     if isinstance(n, bool) or not isinstance(n, numbers.Integral):
         raise TypeError(f"Matrix dimension n must be an integer, got {type(n).__name__}.")
@@ -132,7 +131,7 @@ def validate_configuration(
     if not math.isfinite(timeout_f) or timeout_f <= 0.0:
         raise ValueError(f"Timeout must be finite and positive, got {timeout}.")
 
-    # Central validation of Gate G1 / DEC-01 permission and process count
+    # Validate positive integer worker count (p >= 1)
     verify_multiworker_permission(p)
 
     nb = compute_grid_dimensions(n, b)
@@ -141,7 +140,7 @@ def validate_configuration(
     print(f"[CONFIG CHECK] Grid dimension: {nb} x {nb} blocks ({nb**2} blocks total)")
     print(f"[CONFIG CHECK] Multiplication tasks: {nb**3}, Reduction additions: {nb**2 * (nb - 1)}")
     print(f"[CONFIG CHECK] Repetitions: {repetitions}, Sample timeout: {timeout_f:.1f} s")
-    print(f"[CONFIG CHECK] Worker count: p={p} (Permission verified).")
+    print(f"[CONFIG CHECK] Worker count: p={p} (Configuration verified).")
 
     return True
 
@@ -169,7 +168,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         target_sizes = (250, 500, 750, 1000, 1500, 2000) if args.workers == 1 else (1000, 1500, 2000)
         if args.workers == 1:
-            print("[CAMPAIGN MODE] Full Phase 8 Single-Worker Campaign selected.")
+            print("[CAMPAIGN MODE] Full Single-Worker Campaign selected.")
             print("[CAMPAIGN MODE] Enforcing fixed campaign matrix: n in {250, 500, 750, 1000, 1500, 2000}, b=250, p=1, 36 runs.")
         else:
             print(f"[CAMPAIGN MODE] Strong-Scaling Multi-Worker Campaign selected (p={args.workers}, 1 physical host).")
@@ -201,7 +200,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     if args.pilot:
-        print("[PILOT MODE] Bounded Phase 7 Pilot selected.")
+        print("[PILOT MODE] Bounded Pilot selected.")
         print("[PILOT MODE] Enforcing fixed pilot matrix: n in {250, 500}, b=250, p=1, 6 runs.")
         # Guard against external dimension/worker args attempting to alter pilot
         if args.n not in (250, 500):
@@ -243,11 +242,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("\n[SUCCESS] Configuration check passed. Exiting (--check-config).")
         return 0
 
-    print("\n[NOTE] Execution of matrix calculations or worker clusters belongs to Phase 5–8.")
-    print("Use --check-config for static verification in Phase 4.")
-    print("Use --validate-fixtures to run Phase 5 correctness verification.")
-    print("Use --pilot to execute the bounded Phase 7 Pilot.")
-    print("Use --campaign to execute the full Phase 8 Single-Worker Campaign.")
+    print("\n[NOTE] Select an execution or verification mode flag:")
+    print("Use --check-config for static parameter verification.")
+    print("Use --validate-fixtures to run numerical correctness verification.")
+    print("Use --pilot to execute the bounded single-worker pilot.")
+    print("Use --campaign to execute the full single-worker campaign.")
     return 0
 
 

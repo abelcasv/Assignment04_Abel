@@ -2,8 +2,7 @@
 src.dask_matrix.partitioning — 2D Block Partitioning and Assembly
 
 Handles 2D decomposition of square matrices into blocks of reference size b x b.
-Strictly implements the edge-block policy defined in SPEC.md (DEC-05) and
-docs/experimental_protocol.md (Section 5.3):
+Strictly implements the edge-block policy defined in SPEC.md:
 - Edge blocks are truncated to their exact dimensions: min(b, n - start).
 - Zero-padding is strictly forbidden.
 - All extracted blocks and assembled matrices are forced to contiguous C-order.

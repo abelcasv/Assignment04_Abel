@@ -1,10 +1,10 @@
 """
-tests/test_cli.py — Unit Tests for CLI Parameter Validation and DEC-01 Enforcement
+tests/test_cli.py — Unit Tests for CLI Parameter Validation and Runner Contracts
 
 Verifies:
-- validate_configuration enforces positive integers and DEC-01 permission.
-- CLI --check-config rejects p=0, p=-2, and unauthorized p > 1 without launching clusters.
-- CLI --check-config accepts p=1.
+- validate_configuration enforces positive integers for n, b, and p.
+- CLI --check-config rejects p=0, p=-2 without launching clusters.
+- CLI --check-config accepts p=1 and positive integer multi-worker configurations.
 - Injected cluster managers in CampaignRunner and PilotRunner strictly enforce fail-closed contract:
   * Constructor validation (worker_count=1, 2, 0, -1, 1.5, True, False, None, missing, np.int64(1))
   * Run-time validation prior to manifest reading, matrix loading, and cluster startup
@@ -49,16 +49,8 @@ class TestValidateConfiguration(unittest.TestCase):
             with self.assertRaises(TypeError):
                 validate_configuration(250, 250, p)  # type: ignore
 
-    def test_multiworker_blocked_without_permission(self):
-        """p > 1 raises PermissionError when DEC-01 permission is absent."""
-        with patch("src.dask_matrix.cluster_manager.DECISIONS_DIR", "__nonexistent_decisions_dir__"):
-            for p in [2, 4, 8]:
-                with self.assertRaises(PermissionError) as ctx:
-                    validate_configuration(250, 250, p)
-                self.assertIn("DEC-01", str(ctx.exception))
-
-    def test_multiworker_authorized_with_permission_record(self):
-        """p > 1 succeeds when DEC-01 authorization evidence is present."""
+    def test_multiworker_positive_integers_accepted(self):
+        """p > 1 succeeds for local strong-scaling worker counts."""
         with patch("sys.stdout", new_callable=StringIO):
             for p in [2, 4, 8, 10]:
                 self.assertTrue(validate_configuration(1000, 250, p))
@@ -87,17 +79,8 @@ class TestCliCheckConfig(unittest.TestCase):
             self.assertEqual(ret, 1)
             self.assertIn("positive integer", err.getvalue())
 
-    def test_check_config_multiworker_fails_dec01_when_permission_absent(self):
-        """--check-config -p 2 returns exit code 1 when DEC-01 permission file is absent."""
-        with patch("src.dask_matrix.cluster_manager.DECISIONS_DIR", "__nonexistent_decisions_dir__"), \
-             patch("sys.stdout", new_callable=StringIO), \
-             patch("sys.stderr", new_callable=StringIO) as err:
-            ret = cli_main(["--check-config", "--n", "250", "-b", "250", "-p", "2"])
-            self.assertEqual(ret, 1)
-            self.assertIn("DEC-01", err.getvalue())
-
-    def test_check_config_multiworker_succeeds_with_dec01_permission(self):
-        """--check-config -p 2 and --campaign --check-config -p 2 succeed when DEC-01 is authorized."""
+    def test_check_config_multiworker_succeeds(self):
+        """--check-config -p 2 and --campaign --check-config -p 2 succeed for local strong scaling."""
         with patch("sys.stdout", new_callable=StringIO):
             self.assertEqual(cli_main(["--check-config", "--n", "1000", "-b", "250", "-p", "2"]), 0)
             self.assertEqual(cli_main(["--campaign", "--check-config", "-p", "2"]), 0)

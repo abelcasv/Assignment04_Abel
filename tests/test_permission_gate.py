@@ -1,15 +1,12 @@
 """
-tests/test_permission_gate.py — Verification of Gate G1 / DEC-01 Permission Enforcement
+tests/test_permission_gate.py — Verification of Worker Count & Single-Host Topology Validation
 
 Ensures that:
-- Single worker (p=1) is strictly and exclusively authorized without requiring approval files.
+- Single worker (p=1) and valid multi-worker counts (p > 1) are accepted as positive integers.
 - Process counts below 1 (p <= 0) raise ValueError.
 - Non-integral types, booleans, floats, and strings raise TypeError.
-- Multiple local workers (p > 1) raise PermissionError when no written instructor
-  permission is located in docs/decisions/.
-- Under no circumstances is p > 1 silently converted or fallen back to p = 1.
 - ClusterManager validates constructor parameters strictly before cluster creation.
-- ClusterManager rejects invalid/unauthorized values prior to any cluster initialization.
+- ClusterManager rejects invalid values prior to any cluster initialization.
 """
 
 import os
@@ -29,7 +26,7 @@ from src.dask_matrix.cluster_manager import (
 class TestPermissionGate(unittest.TestCase):
 
     def test_single_worker_permitted(self):
-        """p=1 must be authorized prior to instructor permission."""
+        """p=1 must be accepted as a valid positive integer worker count."""
         self.assertTrue(verify_multiworker_permission(1))
         # Support numpy integer scalar for p=1
         self.assertTrue(verify_multiworker_permission(np.int64(1)))
@@ -64,25 +61,8 @@ class TestPermissionGate(unittest.TestCase):
                 verify_multiworker_permission(val)  # type: ignore
             self.assertIn("must be an integer", str(ctx.exception))
 
-    def test_multiworker_blocked_without_permission(self):
-        """p > 1 must raise PermissionError if DEC-01 permission evidence is absent."""
-        blocked_counts = [2, 4, 8, 10, 10**9]
-        with patch("src.dask_matrix.cluster_manager.DECISIONS_DIR", "__nonexistent_decisions_dir__"):
-            for p in blocked_counts:
-                with self.assertRaises(PermissionError) as ctx:
-                    verify_multiworker_permission(p)
-                err_msg = str(ctx.exception)
-                self.assertIn("DEC-01", err_msg)
-                self.assertIn("BLOCKED", err_msg)
-                self.assertIn(f"p={p}", err_msg)
-                self.assertIn("Do NOT silently substitute p=1", err_msg)
-
-            # Support numpy integer scalar for p=2
-            with self.assertRaises(PermissionError):
-                verify_multiworker_permission(np.int64(2))
-
-    def test_multiworker_authorized_with_dec01_record(self):
-        """With docs/decisions/DEC-01-instructor-permission.md present, p > 1 is permitted."""
+    def test_multiworker_positive_integers_permitted(self):
+        """Positive integer worker counts p > 1 for local strong scaling are permitted."""
         for p in [2, 4, 8, 10]:
             self.assertTrue(verify_multiworker_permission(p))
         self.assertTrue(verify_multiworker_permission(np.int64(2)))
@@ -127,10 +107,10 @@ class TestClusterManagerValidation(unittest.TestCase):
 
 
 class TestClusterManagerSideEffectOrdering(unittest.TestCase):
-    """Verifies that invalid or unauthorized configurations never create clusters."""
+    """Verifies that invalid configurations never create clusters."""
 
-    def test_invalid_and_blocked_configurations_never_initialize_cluster(self):
-        """Cluster initialization must never be reached for p=0, p=-1, p=2, or invalid types."""
+    def test_invalid_configurations_never_initialize_cluster(self):
+        """Cluster initialization must never be reached for p=0, p=-1, or invalid types."""
         # 1. Non-positive p=0 rejected at constructor before start
         with self.assertRaises(ValueError):
             ClusterManager(worker_count=0)
@@ -143,14 +123,13 @@ class TestClusterManagerSideEffectOrdering(unittest.TestCase):
         with self.assertRaises(TypeError):
             ClusterManager(worker_count="2")  # type: ignore
 
-        # 4. p=2 accepted at constructor, but start() raises PermissionError before LocalCluster init when DEC-01 file is absent
-        cm_blocked = ClusterManager(worker_count=2)
-        with patch("src.dask_matrix.cluster_manager.DECISIONS_DIR", "__nonexistent_decisions_dir__"), \
-             patch("distributed.LocalCluster", create=True) as mock_lc:
-            with self.assertRaises(PermissionError) as ctx:
-                cm_blocked.start()
-            self.assertIn("DEC-01", str(ctx.exception))
-            # Verify LocalCluster was NEVER instantiated
+        # 4. Mutated invalid worker_count rejected in start() before LocalCluster init
+        cm_mutated = ClusterManager(worker_count=1)
+        cm_mutated.worker_count = 0
+        with patch("distributed.LocalCluster", create=True) as mock_lc:
+            with self.assertRaises(ValueError) as ctx:
+                cm_mutated.start()
+            self.assertIn("positive integer", str(ctx.exception))
             mock_lc.assert_not_called()
 
 

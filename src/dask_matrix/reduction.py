@@ -2,8 +2,7 @@
 src.dask_matrix.reduction — Binary-Tree Reduction Graph Builder
 
 Constructs the binary-tree reduction for summing the Nb partial products P_ijk
-into the final output block C_ij, adhering strictly to SPEC.md Section 5.2
-and docs/experimental_protocol.md Section 5.1:
+into the final output block C_ij, adhering strictly to SPEC.md:
 - Round-based binary tree: reduces m inputs to ceil(m / 2) intermediate futures.
 - Depth: ceil(log2(Nb)) reduction stages.
 - Additions per output block: exactly Nb - 1 addition tasks.

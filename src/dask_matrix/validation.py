@@ -1,7 +1,7 @@
 """
 src.dask_matrix.validation — Numerical Correctness Validation and Tolerances
 
-Implements the correctness criteria defined in SPEC.md and docs/experimental_protocol.md (Section 9):
+Implements the correctness criteria defined in SPEC.md:
 - Tolerances: absolute tolerance atol = 1e-9, relative tolerance rtol = 1e-12.
 - Condition: |C_ij - C_ref_ij| <= atol + rtol * |C_ref_ij| for all i, j.
 - Validates all values are finite IEEE 754 float64 (no NaN or Inf).

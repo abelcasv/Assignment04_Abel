@@ -77,7 +77,7 @@ If the verification script exits with code 0 and reports `20 passed, 0 failed`, 
 
 ## 4. Frozen Data Immutability Rules
 
-To maintain experimental validity across phases:
+To maintain experimental validity across benchmark runs:
 
 1. **Existing Experimental Workspace:** In an active workspace where `data/dense/` has already been materialized and verified, **do not run `scripts/generate_dataset.py` again**, and never modify, edit, or overwrite existing CSV matrices.
 2. **Fresh Clone Workspace:** Regeneration is authorized and required **only** on a fresh clone or clean environment where `data/dense/` is missing.

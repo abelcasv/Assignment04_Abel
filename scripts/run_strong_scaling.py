@@ -1,7 +1,7 @@
 """
 scripts/run_strong_scaling.py — Controlled Multi-Worker Pilot & Strong-Scaling Campaign Runner
 
-Implements the DEC-01 authorized local multi-worker experiments on 1 physical host:
+Implements the local single-host multi-worker experiments on 1 physical host:
 - --pilot-p1-p2: Bounded p=1 vs p=2 pilot (n in {250, 500}, b=250) validating numerical
   correctness, real multi-worker task distribution, transfer telemetry, RSS delta, and
   clean worker teardown. Outputs strictly to results/metadata/pilot_multiworker_p1_p2.json
@@ -10,7 +10,7 @@ Implements the DEC-01 authorized local multi-worker experiments on 1 physical ho
   b=250, 1 warm-up + 5 measured reps per (n, p), seed=20261113) via CampaignRunner, appending
   non-destructively to results/raw/raw_measurements.csv with one sidecar JSON per p, followed
   by a separate diagnostic task-stream pass (results/metadata/strong_scaling_diagnostics.json)
-  outside primary timed measurements per docs/experimental_protocol.md §7.1.
+  outside primary timed measurements per SPEC.md.
 """
 
 import argparse
@@ -316,7 +316,7 @@ def run_pilot_p1_p2() -> int:
 def run_diagnostic_characterization(worker_counts: Tuple[int, ...], diag_n: int = 1000) -> str:
     """
     Runs a dedicated diagnostic characterization pass strictly outside the primary
-    timed campaign (per docs/experimental_protocol.md §7.1) to capture per-worker
+    timed campaign (per SPEC.md) to capture per-worker
     task distribution, TaskStream compute/transfer/deserialize durations, driver
     phase breakdowns, managed memory, and worker transfer byte deltas.
     """
@@ -328,7 +328,7 @@ def run_diagnostic_characterization(worker_counts: Tuple[int, ...], diag_n: int 
 
     diag_report: Dict[str, Any] = {
         "generated_utc": datetime.now(timezone.utc).isoformat(),
-        "protocol_reference": "docs/experimental_protocol.md §7.1 (separate from primary timed campaign)",
+        "specification_reference": "SPEC.md (separate from primary timed campaign)",
         "n": diag_n,
         "block_size": CAMPAIGN_BLOCK_SIZE,
         "physical_machine_count": 1,
@@ -435,7 +435,6 @@ def run_strong_scaling_campaign(worker_counts: Tuple[int, ...] = STRONG_SCALING_
     manifest_data: Dict[str, Any] = {
         "schema_version": "1.0",
         "generated_utc": datetime.now(timezone.utc).isoformat(),
-        "dec_01_authorization_file": "docs/decisions/DEC-01-instructor-permission.md",
         "physical_machine_count": 1,
         "block_size": CAMPAIGN_BLOCK_SIZE,
         "sizes": list(STRONG_SCALING_SIZES),
